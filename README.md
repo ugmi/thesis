@@ -1,1 +1,1 @@
-# thesis
+# Master thesis project repository
