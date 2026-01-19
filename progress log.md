@@ -12,3 +12,9 @@ Set up a document on Overleaf for the thesis.
 ## 18/01/2026
 Wrote about survival and hazard functions.
 
+## 19/01/2026
+Continued writing about the hazard function.
+Wrote about the fundamentals modelling approach.
+Read the article suggested by Paul.
+Read an article about a new method for mitigating bias when the outcomes are measured with errors.
+Reviewed the articles I had saved earlier in Zotero.
