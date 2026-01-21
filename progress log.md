@@ -22,3 +22,7 @@ Reviewed the articles I had saved earlier in Zotero.
 ## 20/01/2026
 Finished reviewing articles I had saved in Zotero.  
 Using ChatGPT, searched for additional reference articles.  
+
+## 21/01/2026
+Revised survival analysis theory.  
+Wrote about non-parametric models.  
