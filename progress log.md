@@ -31,4 +31,9 @@ Wrote about non-parametric models.
 Wrote about parametric models.  
 Wrote about models for interval-censored data.  
 
+## 23/01/2026
+Wrote up questions for the upcoming meeting.  
+Looked for articles about methods for interval-censored data.  
+Thought about the shape of the data.  
+Started recreating a simulation from one of the papers for practice.   
 
