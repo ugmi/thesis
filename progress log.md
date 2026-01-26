@@ -37,6 +37,8 @@ Looked for articles about methods for interval-censored data.
 Thought about the shape of the data.  
 Started recreating a simulation from one of the papers for practice.  
 
+## 24/01/2026
+
 ## 25/01/2026
 Added further questions for the meeting and clarified them.  
 Read the paper about anonymised data in full.  
