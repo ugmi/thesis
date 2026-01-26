@@ -35,5 +35,15 @@ Wrote about models for interval-censored data.
 Wrote up questions for the upcoming meeting.  
 Looked for articles about methods for interval-censored data.  
 Thought about the shape of the data.  
-Started recreating a simulation from one of the papers for practice.   
+Started recreating a simulation from one of the papers for practice.  
+
+## 25/01/2026
+Added further questions for the meeting and clarified them.  
+Read the paper about anonymised data in full.  
+Added notes in the LaTeX template for the thesis.  
+Received feedback from Paul about the project proposal.  
+
+## 26/01/2026
+Had a meeting with Matteo to discuss the questions.  
+Updated the project proposal.  
 
