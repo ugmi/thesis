@@ -49,3 +49,12 @@ Received feedback from Paul about the project proposal.
 Had a meeting with Matteo to discuss the questions.  
 Updated the project proposal.  
 
+## 27/01/2026
+Finalised and submitted the project proposal form.  
+Read about discrete survival analysis.  
+
+## 28/01/2026
+Set up the meeting with the degree project coordinators.  
+
+
+
