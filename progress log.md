@@ -56,5 +56,16 @@ Read about discrete survival analysis.
 ## 28/01/2026
 Set up the meeting with the degree project coordinators.  
 
+## 29/01/2026
+Created an R script that used an existing data set from `biostats3` package to model the data for our problem.  
+Applied the proposed approach and midpoint imputation to the modified data set.  
+Fitted the Kaplan-Meier curves and Cox proportional hazard models on imputed data.  
+
+## 30/01/2026
+Created an R script that generated survival data from a distribution and modified it to model a real-world study.  
+Applied the proposed approach to build a model on the modified data set.  
+Compared different parametric models resulting from the proposed approach by plotting the fitted distributions.  
+
+
 
 
