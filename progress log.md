@@ -65,7 +65,8 @@ Fitted the Kaplan-Meier curves and Cox proportional hazard models on imputed dat
 Created an R script that generated survival data from a distribution and modified it to model a real-world study.  
 Applied the proposed approach to build a model on the modified data set.  
 Compared different parametric models resulting from the proposed approach by plotting the fitted distributions.  
-
-
+Uploaded R scripts to GitHub.  
+Wrote about common survival time distributions.  
+Wrote down the formula for the Wilson confidence interval.  
 
 
