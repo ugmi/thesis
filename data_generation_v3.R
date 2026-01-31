@@ -30,7 +30,8 @@ plot(o, 1 - pweibull(o, 0.8, 500), xlab = "Days", ylab = "Survival probability",
 
 # Suppose our study ran for three years.
 # Then, the survival times of people alive after day 1095 of the study are censored.
-# We assume 1/14 of participants were lost to follow up.
+# We assume 1/14 of participants were lost to follow up and that it wasn't
+# systematic, i.e. that it was independent from entry date and the survival time.
 df <- data.frame("true" = round(t, 5), 
                  "days" = floor(t),
                  "lost.flw" = rbinom(N, 1, 1/14),
@@ -52,14 +53,17 @@ fy <- function(l, u, b) Fz(u, b) - Fz(l, b)
 logL <- function(b, l, u) -sum(log(fy(l, u, b)))
 
 # Try different distributions
-Fz <- function(z, b) pexp(z, b)
+Fz <- function(z, b) pexp(z, rate = b)
 mle.exp <- nlm(logL, 1/100, l, u, hessian = TRUE)
 
-Fz <- function(z, b) pweibull(z, b[1], b[2])
+Fz <- function(z, b) pweibull(z, shape = b[1], scale = b[2])
 mle.weibull <- nlm(logL, c(0.5, 400), l, u, hessian = TRUE)
 
-Fz <- function(z, b) plogis(z, b[1], b[2])
+Fz <- function(z, b) plogis(z, location = b[1], scale = b[2])
 mle.logis <- nlm(logL, c(0, 400), l, u, hessian = TRUE)
+
+Fz <- function(z, b) pgamma(z, shape = b[1], rate = b[2])
+mle.gamma <- nlm(logL, c(1, 1/100), l, u, hessian = TRUE)
 
 # Plot and compare the distributions
 plot(o, 1 - pweibull(o, 0.8, 500), pch=20, main = "Fitted survival curves",
@@ -69,9 +73,13 @@ points(o, 1 - pweibull(o, mle.weibull$estimate[1], mle.weibull$estimate[2]),
        pch = 20, col = "#80DF3033")
 points(o, 1 - plogis(o, mle.logis$estimate[1], mle.logis$estimate[2]), 
        pch = 20, col = "#3060FF33")
-legend("topright", lty = rep(1, 4), bty = "n",
-       col = c("black", "#FF00A099", "#80DF3099", "#3060FF99"), 
-       legend = c("True distribution", "Exponential", "Weibull", "Logistic"))
+points(o, 1 - pgamma(o, mle.gamma$estimate[1], mle.gamma$estimate[2]),
+       pch = 20, col = "#F5FF8333")
+legend("topright", lty = rep(1, 5), bty = "n",
+       col = c("black", "#FF00A099", "#80DF3099", "#3060FF99", "#F5FF8399"), 
+       legend = c("True distribution", "Exponential", "Weibull", "Logistic", "Gamma"))
+
+# From the plot, we see that Weibull and Gamma distributions are close to the truth.
 
 # Plot the Weibull distribution only
 plot(o, 1 - pweibull(o, mle.weibull$estimate[1], mle.weibull$estimate[2]),
