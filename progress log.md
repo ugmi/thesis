@@ -69,4 +69,8 @@ Uploaded R scripts to GitHub.
 Wrote about common survival time distributions.  
 Wrote down the formula for the Wilson confidence interval.  
 
+## 31/01/2026
+Adjusted previously created plots for legibility.  
+Added a comparison with Kaplan-Meier estimates.  
+
 
