@@ -65,6 +65,16 @@ mle.logis <- nlm(logL, c(0, 400), l, u, hessian = TRUE)
 Fz <- function(z, b) pgamma(z, shape = b[1], rate = b[2])
 mle.gamma <- nlm(logL, c(1, 1/100), l, u, hessian = TRUE)
 
+# Confidence interval formula
+wilson.CI <- function(p.hat, n, alpha=0.05) {
+  z <- qnorm(1 - alpha/2)
+  lower <- (p.hat + z^2/(2*n))/(1 + z^2/n) - 
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  upper <- (p.hat + z^2/(2*n))/(1 + z^2/n)+
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  return(list("lower"=lower, "upper"=upper))
+}
+
 # Plot and compare the distributions
 plot(o, 1 - pweibull(o, 0.8, 500), pch=20, main = "Fitted survival curves",
      xlab = "Days", ylab = "Survival probability", cex=0.1)
@@ -79,7 +89,7 @@ legend("topright", lty = rep(1, 5), bty = "n",
        col = c("black", "#DF99FF99", "#72BF4099", "#3060FF99", "#FF000099"), 
        legend = c("True distribution", "Exponential", "Weibull", "Logistic", "Gamma"))
 
-# From the plot, we see that Weibull and Gamma distributions are close to the truth.
+# We see in the plot that Weibull and Gamma distributions are close to the truth.
 
 # Plot the Weibull distribution only
 plot(o, 1 - pweibull(o, mle.weibull$estimate[1], mle.weibull$estimate[2]),
@@ -89,29 +99,41 @@ points(o, 1 - pweibull(o, 0.8, 500), pch = 20, cex=0.1)
 legend("topright", lty = c(1, 1), bty = "n", col = c("black", "red"),
        legend = c("True distribution", "Fitted distribution"))
 
-# Bias
-c(0.8, 500) - mle.weibull$estimate
+# Bias (model parameters)
+c(0.8, 500) - mle.weibull$estimate  # -0.03495806 -39.29334380
+
+# Bias (1-year survival probability)
+(1 - pweibull(365.25, 0.8, 500)) - (1 - pweibull(365.25, mle.weibull$estimate[1], mle.weibull$estimate[2]))
+(1 - pweibull(365.25, 0.8, 500)) - (1 - pgamma(365.25, mle.gamma$estimate[1], mle.weibull$estimate[2]))
+(1 - pweibull(365.25, 0.8, 500)) - (1 - pexp(365.25, mle.exp$estimate))
+# -0.02625908, 0.4593924, -0.03086711
 
 # Conventional approaches ------------------------------------------------------
-
-plot(survfit(Surv(exit - entry, status == "Dead") ~ 1, data = df.obs, 
-             conf.type = "log-log"), 
-     main = "Kaplan-Meier survival curve", xlab = "Days", ylab = "Survival",
+KM <- survfit(Surv(exit - entry, status == "Dead") ~ 1, data = df.obs, 
+              conf.type = "log-log")
+plot(KM, main = "Kaplan-Meier survival curve", xlab = "Days", ylab = "Survival",
      col = "red", xlim = c(0, 5000))
-points(o, 1 - pweibull(o, 0.8, 500), pch = 20, col="black", cex=0.1)
+points(o, 1 - pweibull(o, 0.8, 500), pch = 20, col = "black", cex = 0.1)
 #lines(survfit(coxph(Surv(exit - entry, status == "Dead") ~ 1, data = df.obs)), col="blue")
 # No need to add Cox model since we have no covariates
 
 # Compare with some of the fitted models from before
-plot(survfit(Surv(exit - entry, status == "Dead") ~ 1, data = df.obs, 
-             conf.type = "log-log"),
-     main = "Kaplan-Meier vs proposed approach", xlab = "Days", ylab = "Survival")
-points(o, 1 - pexp(o, mle.exp$estimate), pch = 20, col = "#DF99FF66", cex=0.1)
+plot(KM, main = "Kaplan-Meier vs proposed approach", xlab = "Days", ylab = "Survival")
+points(o, 1 - pexp(o, mle.exp$estimate), pch = 20, col = "#DF99FF66", cex = 0.1)
 points(o, 1 - pweibull(o, mle.weibull$estimate[1], mle.weibull$estimate[2]), 
-       pch = 20, col = "#72BF4066", cex=0.1)
+       pch = 20, col = "#72BF4066", cex = 0.1)
 points(o, 1 - pgamma(o, mle.gamma$estimate[1], mle.gamma$estimate[2]),
-       pch = 20, col = "#FF000066", cex=0.1)
+       pch = 20, col = "#FF000066", cex = 0.1)
 legend("topright", lty = rep(1, 4), bty = "n",
        col = c("black", "#DF99FF99", "#72BF4099", "#FF000099"), 
        legend = c("Kaplan-Meier curve", "Exponential", "Weibull", "Gamma"))
 
+# Mean squared error
+mean((1 - pweibull(KM$time, 0.8, 500) - KM$surv)^2)
+mean((pweibull(KM$time, 0.8, 500) - pweibull(KM$time, mle.weibull$estimate[1], mle.weibull$estimate[2]))^2)
+mean((pweibull(KM$time, 0.8, 500) - pgamma(KM$time, mle.gamma$estimate[1], mle.gamma$estimate[2]))^2)
+mean((pweibull(KM$time, 0.8, 500) - pexp(KM$time, mle.exp$estimate))^2)
+
+# Bias (1-year survival probability)
+(1 - pweibull(365.25, 0.8, 500)) - KM$surv[290] # since KM$time[290] = 365
+# -0.03037433
