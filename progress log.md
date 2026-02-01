@@ -72,5 +72,12 @@ Wrote down the formula for the Wilson confidence interval.
 ## 31/01/2026
 Adjusted previously created plots for legibility.  
 Added a comparison with Kaplan-Meier estimates.  
+Added a function to calculate the confidence interval for the proportion.  
+Calculated mean squared error for the fitted distributions.  
+
+# 01/02/2026
+Created an R script that generated survival data from a distribution.  
+Modified the generated data to model a study representative of the thesis topic.  
+Recreated plots and analyses from previous scripts.  
 
 
