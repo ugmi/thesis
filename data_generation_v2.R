@@ -17,7 +17,7 @@ df <- biostat3::colon[c("id", "sex", "status", "dx", "exit")] %>%
     censored = status %in% c("Alive", "Lost to follow-up"),
     country = factor(rbinom(15564, 1, 1/3), levels = 0:1, 
                      labels = c("Sweden", "Norway")),
-    y.exit = year(exit, trunc = TRUE),
+    y.exit = biostat3::year(exit, trunc = TRUE),
     m.exit = months(exit) 
     )
 
