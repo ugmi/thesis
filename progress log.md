@@ -80,4 +80,10 @@ Created an R script that generated survival data from a distribution.
 Modified the generated data to model a study representative of the thesis topic.  
 Recreated plots and analyses from previous scripts.  
 
+# 02/02/2026
+Created a plotting function for CIs and added CIs to existing plots.  
+Fitted a parametric Weibull model.  
+Created an R script to model a heterogeneous effect of two treatments.  
+
+# 03/02/2026
 
