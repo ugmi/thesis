@@ -1,6 +1,5 @@
 # This is a preliminary script to practice simulating survival data.
 
-# We practice generating data and calculating the bias of different methods.
 # We model varying measurement precision in this script.
 
 library(survival)
@@ -42,7 +41,7 @@ df["exit.upper"] <- as.Date(ifelse(df$country == "Sweden" | df$status != "Dead",
                                    month_end(df$exit)))
 
 # Select only observed variables
-df.obs <- df[c("status", "country", "entry", "exit.lower", "exit.upper")]
+df.obs <- df[c("status", "country", "treatment", "entry", "exit.lower", "exit.upper")]
 
 # Modelling using proposed approach --------------------------------------------
 
@@ -121,5 +120,20 @@ mean((pweibull(v, 0.8, 500) - pweibull(v, mle.weibull$estimate[1], mle.weibull$e
 mean((pweibull(v, 0.8, 500) - pgamma(v, mle.gamma$estimate[1], mle.gamma$estimate[2]))^2)
 mean((pweibull(v, 0.8, 500) - pexp(v, mle.exp$estimate))^2)
 # 0.000501347, 0.0004116628, 0.0004963145, 0.001627313
+
+# Parametric survival models ---------------------------------------------------
+fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ 1, data = df.obs, 
+                       dist="weibull")
+# This gives an error because the function does not allow time=0.
+# We try again after removing participants with time=0.
+fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ 1, data = df.obs[df.obs$days.mid != 0,], 
+                       dist="weibull")
+plot(KM$time, 1 - pweibull(KM$time, shape = 1/fit.weibull$scale, scale = exp(fit.weibull$coefficients)),
+     xlab = "Days", ylab = "Survival", pch = 20, cex = 0.1)
+points(v, 1 - pweibull(v, mle.weibull$estimate[1], mle.weibull$estimate[2]), 
+       pch = 20, col = "#72BF4066", cex = 0.1)
+points(v, 1 - pweibull(v, 0.8, 500), pch = 20, cex = 0.1, col = "red")
+
+
 
 
