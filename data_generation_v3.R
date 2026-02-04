@@ -45,7 +45,8 @@ df.obs <- df[c("status", "entry", "exit")]
 
 # Modelling using proposed approach --------------------------------------------
 # Define coarsening limits
-l <- df.obs$exit - df.obs$entry
+l <- ifelse(df.obs$exit - df.obs$entry < 1, df.obs$exit - df.obs$entry,
+            df.obs$exit - df.obs$entry - 1)
 u <- ifelse(df.obs$status == "Dead", l + 1, Inf)
 
 # Helper functions
@@ -118,13 +119,13 @@ legend("topright", lty = c(1, 1, 2), bty = "n",
        legend = c("True distribution", "Fitted distribution", "CI bounds"))
 
 # Bias (model parameters)
-c(0.8, 500) - mle.weibull$estimate  # -0.03495806 -39.29334380
+c(0.8, 500) - mle.weibull$estimate  # -0.01867876 -40.83864693
 
 # Bias (1-year survival probability)
 (1 - pweibull(365.25, 0.8, 500)) - (1 - pweibull(365.25, mle.weibull$estimate[1], mle.weibull$estimate[2]))
 (1 - pweibull(365.25, 0.8, 500)) - (1 - pgamma(365.25, mle.gamma$estimate[1], mle.weibull$estimate[2]))
 (1 - pweibull(365.25, 0.8, 500)) - (1 - pexp(365.25, mle.exp$estimate))
-# -0.02625908, 0.4593924, -0.03086711
+# -0.02485482, 0.4593924, -0.02960253
 
 # Conventional approaches ------------------------------------------------------
 KM <- survfit(Surv(exit - entry, status == "Dead") ~ 1, data = df.obs, 
@@ -158,18 +159,23 @@ mean((pweibull(KM$time, 0.8, 500) - pgamma(KM$time, mle.gamma$estimate[1], mle.g
 mean((pweibull(KM$time, 0.8, 500) - pexp(KM$time, mle.exp$estimate))^2)
 
 # Bias (1-year survival probability)
-(1 - pweibull(365.25, 0.8, 500)) - KM$surv[290] # since KM$time[290] = 365
-# -0.03037433
+(1 - pweibull(365.25, 0.8, 500)) - KM$surv[292] # since KM$time[290] = 365
+# -0.01878296
 
 # Parametric models ------------------------------------------------------------
 fit.weibull <- survreg(Surv(exit - entry, status == "Dead") ~ 1, 
                        data = df.obs[df.obs$exit - df.obs$entry != 0,], 
                        dist = "weibull")
+
+# Compare with proposed approach and true distribution
 plot(KM$time, 1 - pweibull(KM$time, shape = 1/fit.weibull$scale, scale = exp(fit.weibull$coefficients)),
-     xlab = "Days", ylab = "Survival", pch = 20, cex = 0.1, col = "red")
+     xlab = "Days", ylab = "Survival", pch = 20, cex = 0.1, col = "red",
+     main = "Parametric survival model")
 points(v, 1 - pweibull(v, mle.weibull$estimate[1], mle.weibull$estimate[2]), 
        pch = 20, col = "#72BF4066", cex = 0.1)
 points(v, 1 - pweibull(v, 0.8, 500), pch = 20, cex = 0.1)
+legend("topright", lty = c(1,1,1), bty = "n", col = c("black", "red", "#72BF4066"),
+       legend = c("True distribution", "Weibull (parametric)", "Weibull (FoSM)"))
 
 # Bias (model parameters)
 c(0.8, 500) - as.numeric(c(1/fit.weibull$scale, exp(fit.weibull$coefficients)))  #  -0.07256524 -39.81796054
