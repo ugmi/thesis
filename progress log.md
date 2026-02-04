@@ -86,4 +86,7 @@ Fitted a parametric Weibull model.
 Created an R script to model a heterogeneous effect of two treatments.  
 
 # 03/02/2026
-
+Added hazard functions and plots of hazard functions.  
+Adjusted coarsening limits for the proposed approach.  
+Drafted a section about the proposed approach.  
+Drafted a section on imputation-based methods.  
