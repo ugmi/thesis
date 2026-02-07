@@ -90,3 +90,18 @@ Added hazard functions and plots of hazard functions.
 Adjusted coarsening limits for the proposed approach.  
 Drafted a section about the proposed approach.  
 Drafted a section on imputation-based methods.  
+
+# 04/02/2026
+Edited drafted sections.  
+
+# 05/02/2026
+
+# 06/02/2026
+
+# 07/02/2026
+Wrote about parametric models for right-censored data.  
+Expanded the section on Cox proportional hazard model.  
+Drafted a section on alternative models for right-censored data.  
+Drafted paragraphs for the section on methods for interval-censored data.  
+
+
