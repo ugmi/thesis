@@ -41,7 +41,7 @@ df["exit.upper"] <- as.Date(ifelse(df$country == "Sweden" | df$status != "Dead",
                                    month_end(df$exit)))
 
 # Select only observed variables
-df.obs <- df[c("status", "country", "treatment", "entry", "exit.lower", "exit.upper")]
+df.obs <- df[c("status", "country", "entry", "exit.lower", "exit.upper")]
 
 # Modelling using proposed approach --------------------------------------------
 
@@ -64,13 +64,13 @@ Fz <- function(z, b) pgamma(z, shape = b[1], rate = b[2])
 mle.gamma <- nlm(logL, c(1, 1/100), l, u, hessian = TRUE)
 
 # Plot and compare the distributions
-plot(o, 1 - pweibull(o, 0.8, 500), pch=20, main = "Fitted survival curves",
+plot(o, 1 - pweibull(o, 0.8, 500), pch = 20, main = "Fitted survival curves",
      xlab = "Days", ylab = "Survival probability", cex=0.1)
-points(o, 1 - pexp(o, mle.exp$estimate), pch = 20, col = "#0000FF66", cex=0.1)
+points(o, 1 - pexp(o, mle.exp$estimate), pch = 20, col = "#0000FF66", cex = 0.1)
 points(o, 1 - pweibull(o, mle.weibull$estimate[1], mle.weibull$estimate[2]), 
-       pch = 20, col = "#72BF4066", cex=0.1)
+       pch = 20, col = "#72BF4066", cex = 0.1)
 points(o, 1 - pgamma(o, mle.gamma$estimate[1], mle.gamma$estimate[2]),
-       pch = 20, col = "#FF000066", cex=0.1)
+       pch = 20, col = "#FF000066", cex = 0.1)
 legend("topright", lty = rep(1, 4), bty = "n",
        col = c("black", "#0000FF99", "#72BF4099", "#FF000099"), 
        legend = c("True distribution", "Exponential", "Weibull", "Gamma"))
