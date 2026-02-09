@@ -5,6 +5,7 @@
 # we include modelling the effect of two different treatments.
 
 library(survival)
+library(biostat3)
 #library(dplyr)
 set.seed(45)
 
@@ -125,6 +126,7 @@ legend("topright", lty = c(1, 1, 1, 1), bty = "n",
 
 
 # Conventional approaches ------------------------------------------------------
+# Kaplan-Meier curves
 KM <- survfit(Surv(exit - entry, status == "Dead") ~ treatment, data = df.obs, 
               conf.type = "log-log")
 
@@ -149,6 +151,26 @@ plotCI(oa, CI.A[[1]], CI.A[[2]], "#FF007744")
 points(tb, 1 - Fz(tb, mle.weibull$estimate, "B"), pch = 20, cex = 0.1, 
        col = "#7700DD88")
 plotCI(ob, CI.B[[1]], CI.B[[2]], "#7700FF44")
+
+# Hazard estimation
+# only a plot
+biostat3::survPHplot(Surv(exit - entry, status == "Dead") ~ treatment, data = df.obs)
+# alternatively
+library(muhaz)
+df.obs.A <- df.obs[df.obs$treatment == "A",]
+df.obs.B <- df.obs[df.obs$treatment == "B",]
+mhA <- muhaz(df.obs.A$exit - df.obs.A$entry, df.obs.A$status == "Dead")
+mhB <- muhaz(df.obs.B$exit - df.obs.B$entry, df.obs.B$status == "Dead")
+# Compare with the true hazard and hazard estimated with the proposed approach
+plot(mhA, ylim=c(0,0.007), col = "red")
+lines(mhB, col = "blue")
+points(ta, h(ta, c(0.8, 500)), col = "#660000FF", pch = 20, cex = 0.1)
+points(tb, h(tb, c(1.5, 800)), col = "#000066FF", pch = 20, cex = 0.1)
+points(ta, hz(ta, mle.weibull$estimate, "A"), pch = 20, cex = 0.1, 
+     col = "#FF000099")
+points(tb, hz(tb, mle.weibull$estimate, "B"), pch = 20, cex = 0.1, 
+       col = "#0000FF99")
+# this is very weird?
 
 # Cox proportional hazards model
 fit.cox <- coxph(Surv(exit - entry, status == "Dead") ~ treatment, data = df.obs)
