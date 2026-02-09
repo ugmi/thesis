@@ -1,0 +1,260 @@
+---
+title: "Simulation"
+author: "Ugne Milasiunaite"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First, we load required libraries.
+
+```{r}
+library(survival)
+```
+
+## Data
+
+We create a data set with columns:
+
+-   id
+-   country
+-   treatment
+-   entry date
+-   status
+-   exit date (if known)
+-   exit year
+-   exit month
+
+```{r}
+# Helper functions
+
+#' Get the date of the first day of the given date's month
+#' 
+#' @param ymd Date
+#' @return Date
+month_start <- function(ymd) as.Date(gsub("[0-9]{2}$", "01", ymd))
+
+#' Get the date of the last day of the given date's month
+#' 
+#' @param ymd Date
+#' @return Date
+month_end <- function(ymd) month_start(ymd + 32) - 1
+
+#' Generate time-to-event data from the Weibull distribution
+#' 
+#' @param n A named list providing the registry sizes
+#' @param proportions A named list of named lists of the proportions of people receiving each treatment for each registry
+#' @param pars A named list of Weibull dist. parameter values for each treatment
+#' @return A data frame with four columns: survival time, probability, treatment type, registry
+generate_weibull <- function(n, proportions, pars) {
+  # Save names for later use
+  regs <- names(proportions)
+  treatments <- names(parameters)
+
+  # Calculation of sizes
+  N <- sapply(regs, function(i)
+    sapply(treatments, function(tr)
+      round(n[[i]] * proportions[[i]][[tr]])))
+  
+  # Generate time-to-event data
+  t.vec <- sapply(treatments, function(i) 
+    rweibull(sum(N[i,]), shape = pars[[i]][[1]], scale = pars[[i]][[2]]))
+  
+  # Create the combined data set
+  df <- do.call(rbind, lapply(treatments, function(tr)
+    data.frame(
+      "time" = t.vec[[tr]],
+      "survival" = 1 - pweibull(t.vec[[tr]], pars[[tr]][[1]], pars[[tr]][[2]]),
+      "treatment" = tr,
+      "registry" = rep(regs, N[tr, ])
+    )))
+  
+  return(df)
+}
+
+#' Generate status, entry and exit dates given survival time in days
+#' 
+#' @param days Vector of survival time in days
+#' @param start Study start date
+#' @param duration Duration of follow-up from the study start in days
+#' @param prob Probability of being lost-to-follow-up for each individual
+#' @return A data frame with
+generate_dates <- function(days, start, duration, prob) {
+  # Generate entry times and 
+  N <- length(days)
+  lost <- rbinom(N, 1, prob)
+  t0 <- floor(runif(N, 1, duration))
+  
+  # Create the data frame
+  df <- data.frame(
+    "entry" = start + t0,
+    "status" = as.factor(ifelse(
+      lost, "Lost to follow up", ifelse(t0 + days > duration, "Alive", "Dead")
+    )))
+  df["exit"] <- start + ifelse(
+    df$status == "Alive",
+    duration,
+    t0 + ifelse(!lost, days, floor(pmin(duration - t0, days)*runif(N)))
+  )
+  
+  return(df)
+}
+
+#' Generate lower and upper limits for interval-censored data
+#' 
+#' @param exit Date of exit
+#' @param exact Binary indicator whether the date should be left exact
+#' @param lower Vector of lower limits for the lower limit
+#' @param upper Vector of upper limits for the upper limit
+#' @param infinite Binary indicator if the upper limit is infinite
+#' @return
+generate_intervals <- function(exit, exact, lower, upper, infinite) {
+  L <- as.Date(ifelse(exact, exit, pmax(month_start(exit), lower)))
+  U <- as.Date(ifelse(exact, exit, ifelse(infinite, Inf, 
+                                          pmin(month_end(df$exit), upper))))
+  return(data.frame("lower" = L, "upper" = U))
+}
+```
+
+We now generate the data.
+
+```{r}
+set.seed(505)
+
+# Description of the setting
+sizes <- list("1" = 900, "2" = 700)
+treat.prop <- list("1" = list("A" = 0.3, "B" = 0.2, "C" = 0.5), 
+                   "2" = list("A" = 0.47, "B" = 0.36, "C" = 0.17))
+parameters <- list("A" = c(0.8, 500), "B" = c(0.9, 700), "C" = c(0.3, 400))
+lost.prop <- list("1" = 0.014, "2" = 0.018)
+duration <- 1095
+start <- as.Date("2001-01-01")
+
+# Create the "true" study data
+df <- generate_weibull(sizes, treat.prop, parameters)
+N <- nrow(df)
+
+# Create the observed data set
+df <- cbind(
+  df, 
+  generate_dates(floor(df$time), start, duration, as.numeric(lost.prop[df$registry]))
+)
+df <- cbind(
+  df,
+  generate_intervals(
+    df$exit,
+    exact = df$registry == "1" & df$status == "Dead",
+    lower = df$entry,
+    upper = start + duration,
+    infinite = df$status != "Dead"
+  )
+)
+df.obs <- df[c("registry", "status", "treatment", "entry", "lower", "upper")]
+head(df.obs)
+```
+
+Add additional covariates.
+
+```{r}
+
+```
+
+## Proposed approach
+
+```{r, warning = FALSE}
+# Helper functions
+fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+
+# Create coarsening intervals
+l <- as.numeric(ifelse(df.obs$exit.lower - df.obs$entry == 0, 0, 
+                       df.obs$exit.lower - df.obs$entry - 1))
+u <- ifelse(df.obs$status == "Dead", df.obs$exit.upper - df.obs$entry + 1, Inf)
+# save covariate vector
+x <- df.obs$treatment
+
+# Try different distributions
+Fz <- function(z, b, x) {
+  (x == "A")*pexp(z, b[1]) + (x == "B")*pexp(z, b[2])
+}
+mle.exp <- nlm(logL, c(1/100, 1/100), l, u, x, hessian = TRUE)
+est.exp <- 1 - Fz(t, mle.exp$estimate, x)
+
+Fz <- function(z, b, x) {
+  (x == "A")*pweibull(z, b[1], b[2]) + (x == "B")*pweibull(z, b[3], b[4])
+  }
+mle.weibull <- nlm(logL, c(0.5, 400, 0.5, 400), l, u, x, hessian = TRUE)
+est.weibull <- 1 - Fz(t, mle.weibull$estimate, x)
+
+Fz <- function(z, b, x) {
+  (x == "A")*pgamma(z, b[1], b[2]) + (x == "B")*pgamma(z, b[3], b[4])
+}
+mle.gamma <- nlm(logL, c(1, 1/100, 1, 1/100), l, u, x, hessian = TRUE)
+est.gamma <- 1 - Fz(t, mle.gamma$estimate, x)
+
+# Plot and compare the distributions
+plot(t, 1 - probs, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves")
+points(t, est.exp, col = "#0000FF66", cex = 0.1)
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+points(t, est.gamma, col = "#FF000066", cex = 0.1)
+legend("topright", lty = rep(1, 4), bty = "n",
+       col = c("black", "#0000FF99", "#72BF4099", "#FF000099"), 
+       legend = c("True distribution", "Exponential", "Weibull", "Gamma"))
+
+```
+
+
+## Imputation
+
+```{r}
+df.obs["exit.mid"] <- as.Date(ifelse(df.obs$exit.upper == df.obs$exit.lower,
+                                     df.obs$exit.lower,
+                                     df.obs$exit.lower + floor((df.obs$exit.upper - df.obs$exit.lower)/2)))
+df.obs["days.mid"] <- as.numeric(df.obs$exit.mid - df.obs$entry)
+
+# Fit the Kaplan-Meier survival curve
+KM <- survfit(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs, 
+              conf.type = "log-log")
+v <- KM$time  # unique time points for which we can estimate the probabilities
+
+# Compare the Kaplan-Meier curve with the true distribution
+plot(KM, col = "red", main = "Kaplan-Meier survival curve", 
+     xlab = "Days", ylab = "Survival")
+points(t, 1 - probs, cex = 0.1, col = "black")
+
+
+```
+
+Compare with the previous approach.
+
+```{r}
+plot(KM, main = "Kaplan-Meier vs proposed approach", xlab = "Days", ylab = "Survival")
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+points(t, est.gamma, col = "#FF000066", cex = 0.1)
+legend("topright", lty = rep(1, 3), bty = "n",
+       col = c("black", "#72BF4099", "#FF000099"), 
+       legend = c("Kaplan-Meier curve", "Weibull", "Gamma"))
+```
+
+Compare with a parametric approach
+```{r}
+fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment), 
+                       data = df.obs[df.obs$days.mid != 0,], dist="weibull")
+fit.weibull.probs <- c(pweibull(ta, shape = 1/exp(fit.weibull$icoef[[2]]), scale = exp(fit.weibull$icoef[[1]])), 
+                       pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]]), scale = exp(fit.weibull$icoef[[1]])))
+
+plot(t, 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", col = "blue", main = "Stratified Weibull parametric model", cex = 0.1)
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+points(t, est.gamma, col = "#FF000066", cex = 0.1)
+points(t, 1 - probs, col = "black", cex = 0.1)
+legend("topright", lty = rep(1, 4), bty = "n",
+       col = c("black", "blue", "#72BF4099", "#FF000099"),
+       legend = c("True distribution", "Parametric Weibull", "Weibull", "Gamma"))
+```
+
+
+
