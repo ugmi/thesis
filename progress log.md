@@ -104,4 +104,5 @@ Expanded the section on Cox proportional hazard model.
 Drafted a section on alternative models for right-censored data.  
 Drafted paragraphs for the section on methods for interval-censored data.  
 
-
+# 08/02/2026
+Edited and documented data generation functions.  
