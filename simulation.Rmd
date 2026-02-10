@@ -13,6 +13,7 @@ First, we load required libraries.
 
 ```{r}
 library(survival)
+library(icenReg)
 ```
 
 ## Data
@@ -37,11 +38,37 @@ We create a data set with columns:
 #' @return Date
 month_start <- function(ymd) as.Date(gsub("[0-9]{2}$", "01", ymd))
 
+
 #' Get the date of the last day of the given date's month
 #' 
 #' @param ymd Date
 #' @return Date
 month_end <- function(ymd) month_start(ymd + 32) - 1
+
+
+#' Stratified distribution function with no explanatory variables
+#' 
+#' @param v Random vector
+#' @param x Treatment indicator
+#' @return Vector of cumulative probabilities
+pdist_strat <- function(v, x, pars) {
+  lst <- sapply(names(pars), function(tr) 
+    pweibull(v[x == tr], shape = pars[[tr]][[1]], scale = pars[[tr]][[2]]))
+  return(do.call(c, lst))
+}
+
+
+#' Stratified hazard function with no explanatory variables
+#' 
+#' @param v Random vector
+#' @param x Treatment indicator
+#' @return Vector of hazards
+hazard_strat <- function(v, x, pars) {
+  lst <- sapply(names(pars), function(tr)
+    dweibull(v[x == tr], pars[[tr]][[1]], pars[[tr]][[2]]) / (1 - pdist_strat(v[x == tr], tr, pars)))
+  return(do.call(c, lst))
+}
+
 
 #' Generate time-to-event data from the Weibull distribution
 #' 
@@ -52,7 +79,7 @@ month_end <- function(ymd) month_start(ymd + 32) - 1
 generate_weibull <- function(n, proportions, pars) {
   # Save names for later use
   regs <- names(proportions)
-  treatments <- names(parameters)
+  treatments <- names(pars)
 
   # Calculation of sizes
   N <- sapply(regs, function(i)
@@ -68,12 +95,13 @@ generate_weibull <- function(n, proportions, pars) {
     data.frame(
       "time" = t.vec[[tr]],
       "survival" = 1 - pweibull(t.vec[[tr]], pars[[tr]][[1]], pars[[tr]][[2]]),
-      "treatment" = tr,
-      "registry" = rep(regs, N[tr, ])
+      "treatment" = as.factor(tr),
+      "registry" = as.factor(rep(regs, N[tr, ]))
     )))
   
   return(df)
 }
+
 
 #' Generate status, entry and exit dates given survival time in days
 #' 
@@ -103,6 +131,7 @@ generate_dates <- function(days, start, duration, prob) {
   return(df)
 }
 
+
 #' Generate lower and upper limits for interval-censored data
 #' 
 #' @param exit Date of exit
@@ -125,22 +154,22 @@ We now generate the data.
 set.seed(505)
 
 # Description of the setting
-sizes <- list("1" = 900, "2" = 700)
+sizes <- list("1" = 1200, "2" = 900)
 treat.prop <- list("1" = list("A" = 0.3, "B" = 0.2, "C" = 0.5), 
                    "2" = list("A" = 0.47, "B" = 0.36, "C" = 0.17))
-parameters <- list("A" = c(0.8, 500), "B" = c(0.9, 700), "C" = c(0.3, 400))
-lost.prop <- list("1" = 0.014, "2" = 0.018)
+parameters <- list("A" = c(0.8, 500), "B" = c(0.9, 500), "C" = c(0.7, 500))
+lost.prop <- c("1" = 0.014, "2" = 0.018)
 duration <- 1095
 start <- as.Date("2001-01-01")
 
-# Create the "true" study data
+# Create the "true" survival data
 df <- generate_weibull(sizes, treat.prop, parameters)
 N <- nrow(df)
 
 # Create the observed data set
 df <- cbind(
   df, 
-  generate_dates(floor(df$time), start, duration, as.numeric(lost.prop[df$registry]))
+  generate_dates(floor(df$time), start, duration, lost.prop[df$registry])
 )
 df <- cbind(
   df,
@@ -156,47 +185,71 @@ df.obs <- df[c("registry", "status", "treatment", "entry", "lower", "upper")]
 head(df.obs)
 ```
 
+Visualize the true distributions.
+
+```{r}
+cols <- c("A" = "#009292", "B" = "#B66DFF", "C" = "#920000")
+plot(df$time, df$survival, cex = 0.1, xlab = "Days", ylab = "Survival", 
+     xlim = c(0, 2000), col = cols[df$treatment])
+legend("topright", lty = c(1, 1, 1), bty = "n", col = cols, legend = names(cols))
+```
+
+Plot the hazard functions.
+
+```{r}
+plot(df$time, hazard_strat(df$time, df$treatment, parameters), cex = 0.1,
+     xlim = c(0, 2000), ylim = c(0, 0.01), xlab = "Days", ylab = "Hazard",
+     col = cols[df$treatment])
+legend("topright", lty = c(1, 1, 1), bty = "n", col = cols, legend = names(cols))
+```
+
 Add additional covariates.
 
 ```{r}
-
+df.obs["sex"] <- factor(rbinom(N, 1, ifelse(df$time > 1000, 2/3, 1/3)), 
+                        levels = 0:1, labels = c("Male", "Female"))
+df.obs["smoker"] <- rbinom(N, 1, ifelse(df.obs$sex == "Male", 5/7, 1/3))
 ```
 
 ## Proposed approach
 
 ```{r, warning = FALSE}
+t <- df[df.obs$status == "Dead", "time"]
+prob <- df[df.obs$status == "Dead", "survival"]
+xt <- df[df.obs$status == "Dead", "treatment"]
+
 # Helper functions
 fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
 logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
 
 # Create coarsening intervals
-l <- as.numeric(ifelse(df.obs$exit.lower - df.obs$entry == 0, 0, 
-                       df.obs$exit.lower - df.obs$entry - 1))
-u <- ifelse(df.obs$status == "Dead", df.obs$exit.upper - df.obs$entry + 1, Inf)
+l <- as.numeric(ifelse(df.obs$lower - df.obs$entry == 0, 0, 
+                       df.obs$lower - df.obs$entry - 1))
+u <- ifelse(df.obs$status == "Dead", df.obs$upper - df.obs$entry + 1, Inf)
 # save covariate vector
 x <- df.obs$treatment
 
 # Try different distributions
 Fz <- function(z, b, x) {
-  (x == "A")*pexp(z, b[1]) + (x == "B")*pexp(z, b[2])
+  (x == "A")*pexp(z, b[1]) + (x == "B")*pexp(z, b[2]) + (x == "C")*pexp(z, b[3])
 }
-mle.exp <- nlm(logL, c(1/100, 1/100), l, u, x, hessian = TRUE)
-est.exp <- 1 - Fz(t, mle.exp$estimate, x)
+mle.exp <- nlm(logL, c(1/100, 1/100, 1/100), l, u, x, hessian = TRUE)
+est.exp <- 1 - Fz(t, mle.exp$estimate, xt)
 
 Fz <- function(z, b, x) {
-  (x == "A")*pweibull(z, b[1], b[2]) + (x == "B")*pweibull(z, b[3], b[4])
+  (x == "A")*pweibull(z, b[1], b[2]) + (x == "B")*pweibull(z, b[3], b[4]) + (x == "C")*pweibull(z, b[5], b[6])
   }
-mle.weibull <- nlm(logL, c(0.5, 400, 0.5, 400), l, u, x, hessian = TRUE)
-est.weibull <- 1 - Fz(t, mle.weibull$estimate, x)
+mle.weibull <- nlm(logL, c(0.5, 400, 0.5, 400, 0.5, 400), l, u, x, hessian = TRUE)
+est.weibull <- 1 - Fz(t, mle.weibull$estimate, xt)
 
 Fz <- function(z, b, x) {
-  (x == "A")*pgamma(z, b[1], b[2]) + (x == "B")*pgamma(z, b[3], b[4])
+  (x == "A")*pgamma(z, b[1], b[2]) + (x == "B")*pgamma(z, b[3], b[4]) + (x == "C")*pgamma(z, b[5], b[6])
 }
-mle.gamma <- nlm(logL, c(1, 1/100, 1, 1/100), l, u, x, hessian = TRUE)
-est.gamma <- 1 - Fz(t, mle.gamma$estimate, x)
+mle.gamma <- nlm(logL, c(1, 1/100, 1, 1/100, 1, 1/100), l, u, x, hessian = TRUE)
+est.gamma <- 1 - Fz(t, mle.gamma$estimate, xt)
 
 # Plot and compare the distributions
-plot(t, 1 - probs, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+plot(t, prob, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
      main = "Fitted survival curves")
 points(t, est.exp, col = "#0000FF66", cex = 0.1)
 points(t, est.weibull, col = "#72BF4066", cex = 0.1)
@@ -207,14 +260,46 @@ legend("topright", lty = rep(1, 4), bty = "n",
 
 ```
 
+Proposed approach, generalized
+
+```{r, warning = FALSE}
+# define the pre-transform
+s <- function(z) qlogis(pweibull(z, 0.8, 500))
+# apply the pre-transform to the coarsening limits
+sl <- s(l)
+su <- s(u)
+# define the modelling distribution and polynomial approximation
+Fz <- function(z, b, x) plogis(g(z, b, x))
+g <- function(z, b, x) {
+  b[1] + z*(b[2]*(x == "A") + b[3]*(x == "B") + b[4]*(x == "C")) + b[5]*(x == "B") + b[6]*(x == "C")
+}
+fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+# estimate the parameters
+pars <- nlm(logL, c(1, 1, 1, 1, 1, 1, 1, 1), u=su, l=sl, x=df.obs$treatment)
+# plot the estimated survival distributions
+plot(t, prob, col="black", cex = 0.1, xlab = "Days", ylab = "Survival")
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+points(t, 1 - Fz(s(t), pars$estimate, xt), col = "navy", cex = 0.1)
+```
+
+Some numerical comparisons
+
+```{r}
+mean((prob - est.weibull)^2)
+mean((prob - 1 + Fz(s(t), pars$estimate, xt))^2)
+mean(abs(prob - est.weibull))
+mean(abs(prob - 1 + Fz(s(t), pars$estimate, xt)))
+```
 
 ## Imputation
 
 ```{r}
-df.obs["exit.mid"] <- as.Date(ifelse(df.obs$exit.upper == df.obs$exit.lower,
-                                     df.obs$exit.lower,
-                                     df.obs$exit.lower + floor((df.obs$exit.upper - df.obs$exit.lower)/2)))
-df.obs["days.mid"] <- as.numeric(df.obs$exit.mid - df.obs$entry)
+df.obs["mid"] <- as.Date(ifelse(
+  df.obs$upper == df.obs$lower | df$status != "Dead",
+  df.obs$lower,
+  df.obs$lower + floor((df.obs$upper - df.obs$lower)/2)))
+df.obs["days.mid"] <- as.numeric(df.obs$mid - df.obs$entry)
 
 # Fit the Kaplan-Meier survival curve
 KM <- survfit(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs, 
@@ -224,9 +309,7 @@ v <- KM$time  # unique time points for which we can estimate the probabilities
 # Compare the Kaplan-Meier curve with the true distribution
 plot(KM, col = "red", main = "Kaplan-Meier survival curve", 
      xlab = "Days", ylab = "Survival")
-points(t, 1 - probs, cex = 0.1, col = "black")
-
-
+points(t, prob, cex = 0.1, col = "black")
 ```
 
 Compare with the previous approach.
@@ -240,21 +323,91 @@ legend("topright", lty = rep(1, 3), bty = "n",
        legend = c("Kaplan-Meier curve", "Weibull", "Gamma"))
 ```
 
-Compare with a parametric approach
-```{r}
-fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment), 
-                       data = df.obs[df.obs$days.mid != 0,], dist="weibull")
-fit.weibull.probs <- c(pweibull(ta, shape = 1/exp(fit.weibull$icoef[[2]]), scale = exp(fit.weibull$icoef[[1]])), 
-                       pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]]), scale = exp(fit.weibull$icoef[[1]])))
+Compare with a parametric approach.
 
-plot(t, 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", col = "blue", main = "Stratified Weibull parametric model", cex = 0.1)
+```{r}
+ta <- t[xt == "A"]
+tb <- t[xt == "B"]
+tc <- t[xt == "C"]
+fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment), 
+                       data = df.obs[df.obs$days.mid != 0,], dist = "weibull")
+fit.weibull.probs <- c(
+  pweibull(ta, shape = 1/exp(fit.weibull$icoef[[2]]), 
+           scale = exp(fit.weibull$icoef[[1]])), 
+  pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]]), 
+           scale = exp(fit.weibull$icoef[[1]])),
+  pweibull(tc, shape = 1/exp(fit.weibull$icoef[[4]]), 
+           scale = exp(fit.weibull$icoef[[1]]))
+)
+
+plot(c(ta, tb, tc), 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", 
+     col = "blue", main = "Stratified Weibull parametric model", cex = 0.1)
 points(t, est.weibull, col = "#72BF4066", cex = 0.1)
 points(t, est.gamma, col = "#FF000066", cex = 0.1)
-points(t, 1 - probs, col = "black", cex = 0.1)
+points(t, prob, col = "black", cex = 0.1)
 legend("topright", lty = rep(1, 4), bty = "n",
        col = c("black", "blue", "#72BF4099", "#FF000099"),
        legend = c("True distribution", "Parametric Weibull", "Weibull", "Gamma"))
 ```
 
+```{r}
+# Mean squared errors
+mean((prob - est.gamma)^2)
+mean((prob - est.weibull)^2)
+mean((prob - est.exp)^2)
+mean((c(prob[xt == "A"], prob[xt == "B"], prob[xt == "C"]) - 1 + fit.weibull.probs)^2)
+mean((1 - pdist_strat(KM$time, rep(c("A", "B", "C"), KM$strata), parameters) - KM$surv)^2)
+```
 
+```{r}
+# Absolute errors
+mean(abs(prob - est.gamma))
+mean(abs(prob - est.weibull))
+mean(abs(prob - est.exp))
+mean(abs(c(prob[xt == "A"], prob[xt == "B"], prob[xt == "C"]) - 1 + fit.weibull.probs))
+mean(abs(1 - pdist_strat(KM$time, rep(c("A", "B", "C"), KM$strata), parameters) - KM$surv))
+```
 
+## Check for proportional hazards assumption
+
+```{r}
+fit.cox <- coxph(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs)
+res <- cox.zph(fit.cox)
+print(res)
+```
+
+```{r}
+plot(res, resid = TRUE)
+```
+
+The test indicates that the assumption of proportional hazards is violated. By plotting the Schoenfeld residuals we see that the hazards seem proportional until around day 410, at which point the points start to go up and diverge from a horizontal line.
+
+## Methods for interval-censored data
+
+```{r}
+df.obs["days.lower"] <- as.numeric(df.obs$lower - df.obs$entry)
+df.obs["days.upper"] <- as.numeric(df.obs$upper - df.obs$entry)
+fit.np <- ic_np(cbind(days.lower, days.upper) ~ treatment, data = df.obs)
+plot(fit.np)
+points(t, prob, col = "black", cex = 0.1)
+```
+
+```{r}
+df.obs["days.lower"] <- ifelse(df.obs$days.lower == 0 & df.obs$days.upper == 0, 
+                               0.5, df.obs$days.lower)
+df.obs["days.upper"] <- ifelse(df.obs$days.upper == 0, 0.5, df.obs$days.upper)
+fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df.obs, 
+                  model = "aft", dist = "weibull", weights = NULL)
+plot(fit.par, col = "red", xlim = c(0, 1000))
+plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = "blue", cex = 0.1, xlab = "Days", ylab = "Survival")
+points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[3]])), col = "green", cex = 0.1)
+points(tc, 1 - pweibull(tc, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[4]])), col = "orange", cex = 0.1)
+#points(t, prob, col = "black", cex = 0.1)
+```
+
+Check the fit
+
+```{r}
+mean((c(fit.np$scurves$A$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$A$Tbull_ints[, 1], "A", parameters), fit.np$scurves$B$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$B$Tbull_ints[, 1], "B", parameters), fit.np$scurves$C$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$C$Tbull_ints[, 1], "C", parameters)))^2)
+mean(abs(c(fit.np$scurves$A$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$A$Tbull_ints[, 1], "A", parameters), fit.np$scurves$B$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$B$Tbull_ints[, 1], "B", parameters), fit.np$scurves$C$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$C$Tbull_ints[, 1], "C", parameters))))
+```
