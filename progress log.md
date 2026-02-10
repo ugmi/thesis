@@ -106,3 +106,14 @@ Drafted paragraphs for the section on methods for interval-censored data.
 
 # 08/02/2026
 Edited and documented data generation functions.  
+Fixed plots in the markdown file.  
+Added error calculations.  
+
+# 09/02/2026
+Added plots of the true distribution.  
+Created additional covariates.  
+Implemented the generalised approach.  
+Fitted a non-parametric model for interval-censored data.  
+Fitted a Weibull accelerated time failure model to interval-censored data.  
+Added checks for non-proportional hazards.  
+
