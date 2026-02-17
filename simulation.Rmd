@@ -114,7 +114,7 @@ generate_dates <- function(days, start, duration, prob) {
   # Generate entry times and 
   N <- length(days)
   lost <- rbinom(N, 1, prob)
-  t0 <- floor(runif(N, 1, duration))
+  t0 <- floor(runif(N, 0, duration - 1))
   
   # Create the data frame
   df <- data.frame(
@@ -142,10 +142,32 @@ generate_dates <- function(days, start, duration, prob) {
 #' @return
 generate_intervals <- function(exit, exact, lower, upper, infinite) {
   L <- as.Date(ifelse(exact, exit, pmax(month_start(exit), lower)))
-  U <- as.Date(ifelse(exact, exit, ifelse(infinite, Inf, 
-                                          pmin(month_end(df$exit), upper))))
+  U <- as.Date(ifelse(exact, exit, ifelse(infinite, Inf, pmin(month_end(exit), upper))))
   return(data.frame("lower" = L, "upper" = U))
 }
+
+
+#' Generate the data set
+#' 
+#' @param n A named list providing the registry sizes
+#' @param proportions A named list of named lists of the proportions of people receiving each treatment for each registry
+#' @param pars A named list of Weibull dist. parameter values for each treatment
+#' @param start Study start date
+#' @param duration Duration of follow-up from the study start in days
+#' @param prob Probability of being lost-to-follow-up in each registry
+generate_df <- function(n, proportions, pars, start, duration, prob) {
+  df <- generate_weibull(n, proportions, pars)
+  df_dates <- generate_dates(floor(df$time), start, duration, prob[df$registry])
+  df_intervals <- generate_intervals(
+    df_dates$exit,
+    exact = df$registry == "1" & df_dates$status == "Dead",
+    lower = df_dates$entry,
+    upper = start + duration,
+    infinite = df_dates$status != "Dead"
+  )
+  return(do.call(cbind, list(df, df_dates, df_intervals)))
+}
+
 ```
 
 We now generate the data.
@@ -162,26 +184,8 @@ lost.prop <- c("1" = 0.014, "2" = 0.018)
 duration <- 1095
 start <- as.Date("2001-01-01")
 
-# Create the "true" survival data
-df <- generate_weibull(sizes, treat.prop, parameters)
-N <- nrow(df)
-
 # Create the observed data set
-df <- cbind(
-  df, 
-  generate_dates(floor(df$time), start, duration, lost.prop[df$registry])
-)
-df <- cbind(
-  df,
-  generate_intervals(
-    df$exit,
-    exact = df$registry == "1" & df$status == "Dead",
-    lower = df$entry,
-    upper = start + duration,
-    infinite = df$status != "Dead"
-  )
-)
-df.obs <- df[c("registry", "status", "treatment", "entry", "lower", "upper")]
+df.obs <- generate_df(sizes, treat.prop, parameters, start, duration, lost.prop)
 head(df.obs)
 ```
 
@@ -189,43 +193,45 @@ Visualize the true distributions.
 
 ```{r}
 cols <- c("A" = "#009292", "B" = "#B66DFF", "C" = "#920000")
-plot(df$time, df$survival, cex = 0.1, xlab = "Days", ylab = "Survival", 
-     xlim = c(0, 2000), col = cols[df$treatment])
+plot(df.obs$time, df.obs$survival, cex = 0.1, xlab = "Days", ylab = "Survival", 
+     xlim = c(0, 2000), col = cols[df.obs$treatment])
 legend("topright", lty = c(1, 1, 1), bty = "n", col = cols, legend = names(cols))
 ```
 
 Plot the hazard functions.
 
 ```{r}
-plot(df$time, hazard_strat(df$time, df$treatment, parameters), cex = 0.1,
+plot(df.obs$time, hazard_strat(df.obs$time, df.obs$treatment, parameters), cex = 0.1,
      xlim = c(0, 2000), ylim = c(0, 0.01), xlab = "Days", ylab = "Hazard",
-     col = cols[df$treatment])
+     col = cols[df.obs$treatment])
 legend("topright", lty = c(1, 1, 1), bty = "n", col = cols, legend = names(cols))
 ```
 
 Add additional covariates.
 
 ```{r}
-df.obs["sex"] <- factor(rbinom(N, 1, ifelse(df$time > 1000, 2/3, 1/3)), 
+N <- nrow(df.obs)
+df.obs["sex"] <- factor(rbinom(N, 1, ifelse(df.obs$time > 1000, 2/3, 1/3)), 
                         levels = 0:1, labels = c("Male", "Female"))
 df.obs["smoker"] <- rbinom(N, 1, ifelse(df.obs$sex == "Male", 5/7, 1/3))
+df.obs["age.cont"] <- rnorm(N, mean = ifelse(df.obs$time > 1000, 45, 60), sd = 7)
+df.obs["age"] <- floor(df.obs$age)
 ```
 
 ## Proposed approach
 
 ```{r, warning = FALSE}
-t <- df[df.obs$status == "Dead", "time"]
-prob <- df[df.obs$status == "Dead", "survival"]
-xt <- df[df.obs$status == "Dead", "treatment"]
+t <- df.obs[df.obs$status == "Dead", "time"]
+prob <- df.obs[df.obs$status == "Dead", "survival"]
+xt <- df.obs[df.obs$status == "Dead", "treatment"]
 
 # Helper functions
 fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
 logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
 
 # Create coarsening intervals
-l <- as.numeric(ifelse(df.obs$lower - df.obs$entry == 0, 0, 
-                       df.obs$lower - df.obs$entry - 1))
-u <- ifelse(df.obs$status == "Dead", df.obs$upper - df.obs$entry + 1, Inf)
+l <- as.numeric(ifelse(df.obs$lower - df.obs$entry == 0, 0, df.obs$lower - df.obs$entry - 1))
+u <- ifelse(df.obs$status == "Dead", df.obs$upper - df.obs$entry + 0.5, Inf)
 # save covariate vector
 x <- df.obs$treatment
 
@@ -237,9 +243,9 @@ mle.exp <- nlm(logL, c(1/100, 1/100, 1/100), l, u, x, hessian = TRUE)
 est.exp <- 1 - Fz(t, mle.exp$estimate, xt)
 
 Fz <- function(z, b, x) {
-  (x == "A")*pweibull(z, b[1], b[2]) + (x == "B")*pweibull(z, b[3], b[4]) + (x == "C")*pweibull(z, b[5], b[6])
+  (x == "A")*pweibull(z, exp(b[1]), exp(b[2])) + (x == "B")*pweibull(z, exp(b[3]), exp(b[4])) + (x == "C")*pweibull(z, exp(b[5]), exp(b[6]))
   }
-mle.weibull <- nlm(logL, c(0.5, 400, 0.5, 400, 0.5, 400), l, u, x, hessian = TRUE)
+mle.weibull <- nlm(logL, c(-0.2, 6, -0.2, 6, -0.2, 6), l, u, x, hessian = TRUE)
 est.weibull <- 1 - Fz(t, mle.weibull$estimate, xt)
 
 Fz <- function(z, b, x) {
@@ -271,32 +277,58 @@ su <- s(u)
 # define the modelling distribution and polynomial approximation
 Fz <- function(z, b, x) plogis(g(z, b, x))
 g <- function(z, b, x) {
-  b[1] + z*(b[2]*(x == "A") + b[3]*(x == "B") + b[4]*(x == "C")) + b[5]*(x == "B") + b[6]*(x == "C")
+  (b[1] + b[2]*(x == "B") + b[3]*(x == "C")) + z*(b[4] + b[5]*(x == "B") + b[6]*(x == "C"))
 }
 fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
 logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+#
+pdist_ge <- function(z, b, x) plogis(g(s(z), b, x))
 # estimate the parameters
-pars <- nlm(logL, c(1, 1, 1, 1, 1, 1, 1, 1), u=su, l=sl, x=df.obs$treatment)
+pars <- nlm(logL, rep(1, 6), u=su, l=sl, x=df.obs$treatment)
+est.ge <- 1 - Fz(s(t), pars$estimate, xt)
 # plot the estimated survival distributions
 plot(t, prob, col="black", cex = 0.1, xlab = "Days", ylab = "Survival")
 points(t, est.weibull, col = "#72BF4066", cex = 0.1)
-points(t, 1 - Fz(s(t), pars$estimate, xt), col = "navy", cex = 0.1)
+points(t, est.ge, col = "navy", cex = 0.1)
+```
+
+Proposed approach, accelerated failure time
+
+```{r, warning = FALSE}
+# Need to look at this later
+fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+x <- df.obs$treatment
+Fz <- function(z, b, x) {
+  (x == "A")*pweibull(z*exp(-b[3]), exp(b[1] + b[3]*b[2]), exp(b[2])) + (x == "B")*pweibull(z*exp(-b[6]), exp(b[4] + b[6]*b[5]), exp(b[5])) + (x == "C")*pweibull(z*exp(-b[9]), exp(b[7] + b[9]*b[8]), exp(b[8]))
+  }
+pars.aft <- nlm(logL, c(-0.69, 6, 0, -0.69, 6, 0, -0.69, 6, 0), l, u, x, hessian = TRUE)
+est.aft <- 1 - Fz(t, pars.aft$estimate, xt)
+plot(t, prob, col = "black", cex = 0.1, xlab = "Days", ylab = "Survival")
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+points(t, est.ge, col = "navy", cex = 0.1)
+points(t, est.aft, col = "maroon", cex = 0.1)
 ```
 
 Some numerical comparisons
 
 ```{r}
+mean((prob - est.gamma)^2)
 mean((prob - est.weibull)^2)
-mean((prob - 1 + Fz(s(t), pars$estimate, xt))^2)
+mean((prob - est.ge)^2)
+mean((prob - est.aft)^2)
+print("-------")
+mean(abs(prob - est.gamma))
 mean(abs(prob - est.weibull))
-mean(abs(prob - 1 + Fz(s(t), pars$estimate, xt)))
+mean(abs(prob - est.ge))
+mean(abs(prob - est.aft))
 ```
 
 ## Imputation
 
 ```{r}
 df.obs["mid"] <- as.Date(ifelse(
-  df.obs$upper == df.obs$lower | df$status != "Dead",
+  df.obs$upper == df.obs$lower | df.obs$status != "Dead",
   df.obs$lower,
   df.obs$lower + floor((df.obs$upper - df.obs$lower)/2)))
 df.obs["days.mid"] <- as.numeric(df.obs$mid - df.obs$entry)
@@ -334,16 +366,16 @@ fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment),
 fit.weibull.probs <- c(
   pweibull(ta, shape = 1/exp(fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]])), 
-  pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]]), 
+  pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]] + fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]])),
-  pweibull(tc, shape = 1/exp(fit.weibull$icoef[[4]]), 
+  pweibull(tc, shape = 1/exp(fit.weibull$icoef[[4]] + fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]]))
 )
 
 plot(c(ta, tb, tc), 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", 
      col = "blue", main = "Stratified Weibull parametric model", cex = 0.1)
-points(t, est.weibull, col = "#72BF4066", cex = 0.1)
-points(t, est.gamma, col = "#FF000066", cex = 0.1)
+#points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+#points(t, est.gamma, col = "#FF000066", cex = 0.1)
 points(t, prob, col = "black", cex = 0.1)
 legend("topright", lty = rep(1, 4), bty = "n",
        col = c("black", "blue", "#72BF4099", "#FF000099"),
@@ -371,8 +403,43 @@ mean(abs(1 - pdist_strat(KM$time, rep(c("A", "B", "C"), KM$strata), parameters) 
 ## Check for proportional hazards assumption
 
 ```{r}
+# Plot hazards using muhaz
+library(muhaz)
+df.obs.A <- df.obs[df.obs$treatment == "A",]
+df.obs.B <- df.obs[df.obs$treatment == "B",]
+df.obs.C <- df.obs[df.obs$treatment == "C",]
+mhA.mid <- muhaz(df.obs.A$days.mid, df.obs.A$status == "Dead")
+mhB.mid <- muhaz(df.obs.B$days.mid, df.obs.B$status == "Dead")
+mhC.mid <- muhaz(df.obs.C$days.mid, df.obs.C$status == "Dead")
+mhA.l <- muhaz(df.obs.A$lower - df.obs.A$entry, df.obs.A$status == "Dead")
+mhB.l <- muhaz(df.obs.B$lower - df.obs.B$entry, df.obs.B$status == "Dead")
+mhC.l <- muhaz(df.obs.C$lower - df.obs.C$entry, df.obs.C$status == "Dead")
+mhA.u <- muhaz(month_end(df.obs.A$lower) - df.obs.A$entry, df.obs.A$status == "Dead")
+mhB.u <- muhaz(month_end(df.obs.B$lower) - df.obs.B$entry, df.obs.B$status == "Dead")
+mhC.u <- muhaz(month_end(df.obs.C$lower) - df.obs.C$entry, df.obs.C$status == "Dead")
+# Plot the estimated curves
+par(mfrow = c(3, 1), pin = c(5, 0.9), mar = c(1, 2, 1, 1), mai = c(0.25, 0.5, 0.15, 0.1))
+plot(mhA.mid, ylim=c(0,0.007), col = cols["A"], main = "Midpoint imputation", xaxt = "n")
+lines(mhB.mid, col = cols["B"])
+lines(mhC.mid, col = cols["C"])
+legend("topleft", lty = c(1, 1, 1), bty = "n", col = cols, 
+       legend = c("A", "B", "C"))
+plot(mhA.l, ylim=c(0,0.007), col = cols["A"], main = "Month start imputation", xaxt = "n")
+lines(mhB.l, col = cols["B"])
+lines(mhC.l, col = cols["C"])
+legend("topleft", lty = c(1, 1, 1), bty = "n", col = cols, 
+       legend = c("A", "B", "C"))
+plot(mhA.u, ylim=c(0,0.007), col = cols["A"], main = "Month end imputation")
+lines(mhB.u, col = cols["B"])
+lines(mhC.u, col = cols["C"])
+legend("topleft", lty = c(1, 1, 1), bty = "n", col = cols, 
+       legend = c("A", "B", "C"))
+```
+
+
+```{r}
 fit.cox <- coxph(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs)
-res <- cox.zph(fit.cox)
+res <- cox.zph(fit.cox, terms = FALSE)
 print(res)
 ```
 
@@ -399,9 +466,9 @@ df.obs["days.upper"] <- ifelse(df.obs$days.upper == 0, 0.5, df.obs$days.upper)
 fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df.obs, 
                   model = "aft", dist = "weibull", weights = NULL)
 plot(fit.par, col = "red", xlim = c(0, 1000))
-plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = "blue", cex = 0.1, xlab = "Days", ylab = "Survival")
-points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[3]])), col = "green", cex = 0.1)
-points(tc, 1 - pweibull(tc, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[4]])), col = "orange", cex = 0.1)
+plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]])), col = cols["A"], cex = 0.1, xlab = "Days", ylab = "Survival")
+points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = cols["B"], cex = 0.1)
+points(tc, 1 - pweibull(tc, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[4]])), col = cols["C"], cex = 0.1)
 #points(t, prob, col = "black", cex = 0.1)
 ```
 
@@ -411,3 +478,114 @@ Check the fit
 mean((c(fit.np$scurves$A$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$A$Tbull_ints[, 1], "A", parameters), fit.np$scurves$B$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$B$Tbull_ints[, 1], "B", parameters), fit.np$scurves$C$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$C$Tbull_ints[, 1], "C", parameters)))^2)
 mean(abs(c(fit.np$scurves$A$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$A$Tbull_ints[, 1], "A", parameters), fit.np$scurves$B$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$B$Tbull_ints[, 1], "B", parameters), fit.np$scurves$C$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$C$Tbull_ints[, 1], "C", parameters))))
 ```
+
+```{r}
+diag_baseline(fit.par)
+```
+
+
+## Make a table of survival probabilities
+
+```{r}
+# "A"
+days <- as.numeric(month_end(start + 1 + c(0, 1, 2, 3, 4, 5, 11, 17, 23, 35, 47, 59)*31) - start)
+tbl.survA <- data.frame("months" = c(1, 2, 3, 4, 5, 6, 12, 18, 24, 36, 48, 60),
+                       "days" = days)
+tbl.survA["true"] <- 1 - pdist_strat(days, "A", parameters)
+tbl.survA["weibull"] <- 1 - pweibull(days, exp(mle.weibull$estimate[1]), exp(mle.weibull$estimate[2])) - tbl.survA$true
+tbl.survA["gamma"] <- 1 - pgamma(days, mle.gamma$estimate[1], mle.gamma$estimate[2]) - tbl.survA$true
+tbl.survA["generalised"] <- 1 - pdist_ge(days, pars$estimate, "A") - tbl.survA$true
+tbl.survA["weibull.aft"] <- 1 - Fz(days, pars.aft$estimate, "A") - tbl.survA$true
+tbl.survA["imp.weibull"] <- 1 - pweibull(days, shape = 1/exp(fit.weibull$icoef[[2]]), 
+           scale = exp(fit.weibull$icoef[[1]])) - tbl.survA$true
+tbl.survA["int.weibull"] <- 1 - pweibull(days, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])) - tbl.survA$true
+head(tbl.survA)
+```
+
+
+```{r}
+# "B"
+tbl.survB <- data.frame("months" = c(1, 2, 3, 4, 5, 6, 12, 18, 24, 36, 48, 60),
+                       "days" = days)
+tbl.survB["true"] <- 1 - pdist_strat(days, "B", parameters)
+tbl.survB["weibull"] <- 1 - pweibull(days, exp(mle.weibull$estimate[3]), exp(mle.weibull$estimate[4])) - tbl.survB$true
+tbl.survB["gamma"] <- 1 - pgamma(days, mle.gamma$estimate[3], mle.gamma$estimate[4]) - tbl.survB$true
+tbl.survB["generalised"] <- 1 - pdist_ge(days, pars$estimate, "B") - tbl.survB$true
+tbl.survB["weibull.aft"] <- 1 - Fz(days, pars.aft$estimate, "B") - tbl.survB$true
+tbl.survB["imp.weibull"] <- 1 - pweibull(days, shape = 1/exp(fit.weibull$icoef[[3]]), 
+           scale = exp(fit.weibull$icoef[[1]])) - tbl.survB$true
+tbl.survB["int.weibull"] <- 1 - pweibull(days, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[3]]/(exp(fit.par$coefficients[[1]])-1))) - tbl.survB$true
+head(tbl.survB)
+```
+
+```{r}
+# "C"
+tbl.survC <- data.frame("months" = c(1, 2, 3, 4, 5, 6, 12, 18, 24, 36, 48, 60),
+                       "days" = days)
+tbl.survC["true"] <- 1 - pdist_strat(days, "C", parameters)
+tbl.survC["weibull"] <- 1 - pweibull(days, exp(mle.weibull$estimate[5]), exp(mle.weibull$estimate[6])) - tbl.survC$true
+tbl.survC["gamma"] <- 1 - pgamma(days, mle.gamma$estimate[5], mle.gamma$estimate[6]) - tbl.survC$true
+tbl.survB["generalised"] <- 1 - pdist_ge(days, pars$estimate, "C") - tbl.survC$true
+tbl.survC["weibull.aft"] <- 1 - Fz(days, pars.aft$estimate, "C") - tbl.survC$true
+tbl.survC["imp.weibull"] <- 1 - pweibull(days, shape = 1/exp(fit.weibull$icoef[[4]]), 
+           scale = exp(fit.weibull$icoef[[1]])) - tbl.survC$true
+tbl.survC["int.weibull"] <- 1 - pweibull(days, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] + fit.par$coefficients[[4]]/(exp(fit.par$coefficients[[1]])-1))) - tbl.survC$true
+head(tbl.survC)
+```
+
+# Adding covariates to the proposed approach
+
+Try for treatment (startified) and adjusted for sex and smoking
+
+```{r, warning = FALSE}
+xt.tss <- as.factor(paste0(df.obs[df.obs$status == "Dead", "treatment"], df.obs[df.obs$status == "Dead", "sex"], df.obs[df.obs$status == "Dead", "smoker"]))
+
+# Helper functions
+fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+
+# Create coarsening intervals
+l <- as.numeric(ifelse(df.obs$lower - df.obs$entry == 0, 0, 
+                       df.obs$lower - df.obs$entry - 0.5))
+u <- ifelse(df.obs$status == "Dead", df.obs$upper - df.obs$entry + 0.5, Inf)
+# save covariate vector
+x.tss <- as.factor(paste0(df.obs$treatment, df.obs$sex, df.obs$smoker))
+names.tss <- 1:length(levels(x.tss))
+names(names.tss) <- levels(x.tss)
+
+# Try different distributions
+Fz <- function(z, b, x) {
+  pweibull(z, exp(b[names.tss[x]*2-1]), exp(b[names.tss[x]*2]))
+}
+mle.tss.w <- nlm(logL, rep(c(-0.69, 6), 12), l=l, u=u, x=x.tss, hessian = TRUE)
+est.tss.w <- 1 - Fz(t, mle.tss.w$estimate, xt.tss)
+estA.tss.w <- 1 - (Fz(t, mle.tss.w$estimate, "AFemale0") + Fz(t, mle.tss.w$estimate, "AFemale1") + Fz(t, mle.tss.w$estimate, "AMale0") + Fz(t, mle.tss.w$estimate, "AMale1"))/4
+estB.tss.w <- 1 - (Fz(t, mle.tss.w$estimate, "BFemale0") + Fz(t, mle.tss.w$estimate, "BFemale1") + Fz(t, mle.tss.w$estimate, "BMale0") + Fz(t, mle.tss.w$estimate, "BMale1"))/4
+estC.tss.w <- 1 - (Fz(t, mle.tss.w$estimate, "CFemale0") + Fz(t, mle.tss.w$estimate, "CFemale1") + Fz(t, mle.tss.w$estimate, "CMale0") + Fz(t, mle.tss.w$estimate, "CMale1"))/4
+mu.est.tss.w <- (estA.tss.w + estB.tss.w + estC.tss.w)/3
+
+# Plot and compare the distributions
+plot(t, prob, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Adjusted survival curves")
+points(t, estA.tss.w, col = cols["A"], cex = 0.1)
+points(t, estB.tss.w, col = cols["B"], cex = 0.1)
+points(t, estC.tss.w, col = cols["C"], cex = 0.1)
+points(t, est.weibull, col = "#72BF4066", cex = 0.1)
+legend("topright", lty = rep(1, 5), bty = "n",
+       col = c("black", "#72BF40FF", cols), 
+       legend = c("Unadjusted true distributions", "Unadjusted Weibull", "A, adjusted", "B, adjusted", "C, adjusted"))
+
+
+```
+
+Adjusted parametric models
+
+```{r}
+fit.par2 <- ic_par(cbind(days.lower, days.upper) ~ treatment + sex + smoker, 
+                   data = df.obs, model = "aft", dist = "weibull", weights = NULL)
+plot(fit.par2, col = "red", xlim = c(0, 1000))
+points(t, mu.est.tss.w, col = "navy", cex = 0.1)
+```
+
+
+
