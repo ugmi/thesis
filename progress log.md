@@ -117,3 +117,23 @@ Fitted a non-parametric model for interval-censored data.
 Fitted a Weibull accelerated time failure model to interval-censored data.  
 Added checks for non-proportional hazards.  
 
+# 10/02/2026
+
+# 11/02/2026
+
+# 12/02/2026
+Read about accelerated failure time models.  
+Investigated how hazard function estimates depend on the imputation method.  
+Created a table of survival probabilities for a single treatment.  
+
+# 13-16/02/2026
+Adjusted the plot for the hazard function estimation.  
+Created a file for multiple data set simulation.  
+Added covariates to the proposed approach.  
+Fitted an accelerated failure time model using the proposed approach.  
+
+# 17/02/2026
+Added convenience functions to the file for multiple data set simulation.  
+Created a function to calculate average bias and AIC for the same set-up.  
+Investigated the parametrisations of R functions for AFT and Weibull models.  
+
