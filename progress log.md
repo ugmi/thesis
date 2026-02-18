@@ -137,3 +137,9 @@ Added convenience functions to the file for multiple data set simulation.
 Created a function to calculate average bias and AIC for the same set-up.  
 Investigated the parametrisations of R functions for AFT and Weibull models.  
 
+# 18/02/2026
+Cleaned up the functions for estimation from fitted models.  
+Visualised the modelling and the observed distributions.  
+
+
+
