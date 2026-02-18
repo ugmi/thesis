@@ -244,7 +244,7 @@ est.exp <- 1 - Fz(t, mle.exp$estimate, xt)
 
 Fz <- function(z, b, x) {
   (x == "A")*pweibull(z, exp(b[1]), exp(b[2])) + (x == "B")*pweibull(z, exp(b[3]), exp(b[4])) + (x == "C")*pweibull(z, exp(b[5]), exp(b[6]))
-  }
+}
 mle.weibull <- nlm(logL, c(-0.2, 6, -0.2, 6, -0.2, 6), l, u, x, hessian = TRUE)
 est.weibull <- 1 - Fz(t, mle.weibull$estimate, xt)
 
@@ -338,10 +338,41 @@ KM <- survfit(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs,
               conf.type = "log-log")
 v <- KM$time  # unique time points for which we can estimate the probabilities
 
+# Plot the estimates
+plot(KM, main = "Kaplan-Meier survival curves", col = cols)
+
 # Compare the Kaplan-Meier curve with the true distribution
-plot(KM, col = "red", main = "Kaplan-Meier survival curve", 
+plot(KM, col = "red", main = "Kaplan-Meier survival curves", 
      xlab = "Days", ylab = "Survival")
 points(t, prob, cex = 0.1, col = "black")
+```
+
+
+Find the distribution of the observed variable
+
+```{r}
+Fz <- function(z, b, x) {
+  (x == "A")*pweibull(z, exp(b[1]), exp(b[2])) + 
+    (x == "B")*pweibull(z, exp(b[3]), exp(b[4])) + 
+    (x == "C")*pweibull(z, exp(b[5]), exp(b[6]))
+}
+KMa <- KM$time[1:462]
+KMb <- KM$time[463:830]
+KMc <- KM$time[831:1282]
+
+plot(KMa[1:461], 1-cumsum(fy(KMa[1:461], KMa[2:462], mle.weibull$estimate, "A")), col = "blue", cex = 0.1, ylim = c(0, 1), ylab = "Survival", xlab = "Days")
+points(KMb[1:(830-463)], 1-cumsum(fy(KMb[1:(830-463)], KMb[2:(831-463)], mle.weibull$estimate, "B")), col = "blue", cex = 0.1)
+points(KMc[1:(1282-831)], 1-cumsum(fy(KMc[1:(1282-831)], KMc[2:(1283-831)], mle.weibull$estimate, "C")), col = "blue", cex = 0.1)
+points(KMa, 1-Fz(KMa, mle.weibull$estimate, "A"), col = "red", cex = 0.1)
+points(KMb, 1-Fz(KMb, mle.weibull$estimate, "B"), col = "red", cex = 0.1)
+points(KMc, 1-Fz(KMc, mle.weibull$estimate, "C"), col = "red", cex = 0.1)
+lines(KM)
+```
+
+
+```{r}
+# this explains it
+all.equal(Fz(KMa, mle.weibull$estimate, "A")[2:462], cumsum(fy(KMa[1:461], KMa[2:462], mle.weibull$estimate, "A")))
 ```
 
 Compare with the previous approach.
@@ -463,6 +494,8 @@ points(t, prob, col = "black", cex = 0.1)
 df.obs["days.lower"] <- ifelse(df.obs$days.lower == 0 & df.obs$days.upper == 0, 
                                0.5, df.obs$days.lower)
 df.obs["days.upper"] <- ifelse(df.obs$days.upper == 0, 0.5, df.obs$days.upper)
+# gives the same estimates for the stratified analysis as for the not stratified
+# why is this the case?
 fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df.obs, 
                   model = "aft", dist = "weibull", weights = NULL)
 plot(fit.par, col = "red", xlim = c(0, 1000))
