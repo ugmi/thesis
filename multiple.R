@@ -67,7 +67,7 @@ generate_weibull <- function(n, proportions, pars) {
   df <- do.call(rbind, lapply(treatments, function(tr)
     data.frame(
       "time" = t.vec[[tr]],
-      "survival" = 1 - pweibull(t.vec[[tr]], pars[[tr]][[1]], pars[[tr]][[2]]),
+      "survival" = pweibull(t.vec[[tr]], pars[[tr]][[1]], pars[[tr]][[2]], lower.tail = TRUE),
       "treatment" = as.factor(tr),
       "registry" = as.factor(rep(regs, N[tr, ]))
     )))
@@ -233,9 +233,10 @@ estimate_pars <- function(df, parameters, days) {
   fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df, 
                     model = "aft", dist = "weibull", weights = NULL)
   weibull_aft <- function(t, x) {
-    (x == "A")*pweibull(t, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])) +
-      (x == "B")*pweibull(t, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]]/exp(fit.par$coefficients[[1]]))) +
-      (x == "C")*pweibull(t, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[4]]/exp(fit.par$coefficients[[1]])))
+    coeffs <- exp(fit.par$coefficients)
+    (x == "A")*pweibull(t, shape = coeffs[[1]], scale = coeffs[[2]]) +
+      (x == "B")*pweibull(t, coeffs[[1]], coeffs[[2]]/exp(log(coeffs[[3]])/coeffs[[1]])) +
+      (x == "C")*pweibull(t, coeffs[[1]], coeffs[[2]]/exp(log(coeffs[[4]])/coeffs[[1]]))
   }
   
   # Imputation
@@ -249,9 +250,12 @@ estimate_pars <- function(df, parameters, days) {
   fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment), 
                          data = df[df$days.mid != 0,], dist = "weibull")
   weibull_parametric <- function(t, x) {
-    (x == "A")*pweibull(t, shape = 1/exp(fit.weibull$icoef[[2]]), scale = exp(fit.weibull$icoef[[1]])) +
-      (x == "B")*pweibull(t, shape = 1/exp(fit.weibull$icoef[[3]]), scale = exp(fit.weibull$icoef[[1]])) +
-      (x == "C")*pweibull(t, shape = 1/exp(fit.weibull$icoef[[4]]), scale = exp(fit.weibull$icoef[[1]]))
+    #  rweibull shape = 1/(survreg scale) = 1/exp(survreg Log(scale))
+    #  rweibull scale = exp(survreg intercept)
+    coeffs <- exp(fit.weibull$icoef)
+    (x == "A")*pweibull(t, shape = 1/coeffs[[2]], scale = coeffs[[1]]) +
+      (x == "B")*pweibull(t, 1/coeffs[[3]], coeffs[[1]]) +
+      (x == "C")*pweibull(t, 1/coeffs[[4]], coeffs[[1]])
   }
   
   # Create tables
