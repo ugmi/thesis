@@ -470,7 +470,7 @@ legend("topleft", lty = c(1, 1, 1), bty = "n", col = cols,
 
 ```{r}
 fit.cox <- coxph(Surv(days.mid, status == "Dead") ~ treatment, data = df.obs)
-res <- cox.zph(fit.cox, terms = FALSE)
+res <- cox.zph(fit.cox, terms = TRUE)
 print(res)
 ```
 
@@ -499,8 +499,8 @@ df.obs["days.upper"] <- ifelse(df.obs$days.upper == 0, 0.5, df.obs$days.upper)
 fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df.obs, 
                   model = "aft", dist = "weibull", weights = NULL)
 plot(fit.par, col = "red", xlim = c(0, 1000))
-plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]])), col = cols["A"], cex = 0.1, xlab = "Days", ylab = "Survival")
-points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = cols["B"], cex = 0.1)
+plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = cols["A"], cex = 0.1, xlab = "Days", ylab = "Survival")
+points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]])), col = cols["B"], cex = 0.1)
 points(tc, 1 - pweibull(tc, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[4]])), col = cols["C"], cex = 0.1)
 #points(t, prob, col = "black", cex = 0.1)
 ```
@@ -516,6 +516,44 @@ mean(abs(c(fit.np$scurves$A$S_curves$baseline - 1 + pdist_strat(fit.np$scurves$A
 diag_baseline(fit.par)
 ```
 
+## Confidence interval calculation
+
+Firstly, we write down the formulas.
+
+```{r}
+wilsonCI <- function(p.hat, n, alpha=0.05) {
+  z <- qnorm(1 - alpha/2)
+  lower <- (p.hat + z^2/(2*n))/(1 + z^2/n) - 
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  upper <- (p.hat + z^2/(2*n))/(1 + z^2/n)+
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  return(list("lower"=lower, "upper"=upper, "size"=upper-lower))
+}
+
+plotCI <- function(x, lower, upper, col, fill=NA) {
+  if (!is.na(fill)) {
+    polygon(c(rev(x), x), c(rev(lower), upper), col = fill, border = NA)
+  }
+  lines(x, lower, col = col, lty = "dashed")
+  lines(x, upper, col = col, lty = "dashed")
+}
+```
+
+Now, we make the data frame.
+
+```{r}
+days <- as.numeric(month_end(start + 1 + c(0, 1, 2, 3, 4, 5, 11, 17, 23, 35, 47, 59)*31) - start)
+NT <- table(df.obs$treatment)
+CI.A <- wilsonCI(1 - pweibull(days, exp(mle.weibull$estimate[1]), exp(mle.weibull$estimate[2])), NT[["A"]])
+CI.B <- wilsonCI(1 - pweibull(days, exp(mle.weibull$estimate[3]), exp(mle.weibull$estimate[4])), NT[["B"]])
+CI.C <- wilsonCI(1 - pweibull(days, exp(mle.weibull$estimate[5]), exp(mle.weibull$estimate[6])), NT[["C"]])
+
+CI.A.ge <- wilsonCI(1 - pdist_ge(days, pars$estimate, "A"), NT[["A"]])
+CI.B.ge <- wilsonCI(1 - pdist_ge(days, pars$estimate, "B"), NT[["B"]])
+CI.C.ge <- wilsonCI(1 - pdist_ge(days, pars$estimate, "C"), NT[["C"]])
+
+PinCI <- function(p, upper, lower) p <= upper & p >= lower
+```
 
 ## Make a table of survival probabilities
 
