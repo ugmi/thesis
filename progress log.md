@@ -141,5 +141,7 @@ Investigated the parametrisations of R functions for AFT and Weibull models.
 Cleaned up the functions for estimation from fitted models.  
 Visualised the modelling and the observed distributions.  
 
-
+# 19/02/2026
+Simulated a propotional hazards scenario.  
+Read about confidence intervals.  
 
