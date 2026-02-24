@@ -312,15 +312,13 @@ n.iter <- 100
 pb <- txtProgressBar(min = 0, max = n.iter, style = 3, width = 50, char = "=")
 for(i in 1:n.iter) {
   df.obs <- generate_df(sizes, treat.prop, parameters, start, duration, lost.prop)
-  x <- estimate_pars(df.obs, parameters)
+  x <- estimate_pars(df.obs, parameters, days)
   tbl.surv$A <- tbl.surv$A + x$A/100
   tbl.surv$B <- tbl.surv$B + x$B/100
   tbl.surv$C <- tbl.surv$C + x$C/100
   tbl.surv$AIC <- tbl.surv$AIC + attr(x, "AIC")/100
   setTxtProgressBar(pb, i)
 }
-
-
 
 
 
