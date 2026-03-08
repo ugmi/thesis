@@ -219,11 +219,11 @@ set.seed(505)
 
 estimate_pars <- function(df, parameters, days) {
   # Proposed approach
-  pdist_weibull <- proposed_approach(df, "weibull")
-  pdist_gamma <- proposed_approach(df, "gamma")
+  suppressWarnings(pdist_weibull <- proposed_approach(df, "weibull"))
+  suppressWarnings(pdist_gamma <- proposed_approach(df, "gamma"))
   
   # Generalized proposed approach
-  pdist_ge <- generalized_approach(df)
+  suppressWarnings(pdist_ge <- generalized_approach(df))
   
   # Accelerated failure time model
   df["days.lower"] <- as.numeric(df$lower - df$entry)
@@ -265,23 +265,33 @@ estimate_pars <- function(df, parameters, days) {
            "imp.weibull" = -2*fit.weibull$loglik[1] + 2*fit.weibull$df,
            "aft.weibull" = -2*fit.par$llk + 2*length(fit.par$coefficients))
   
-  get_table <- function(days, tr, parameters) {
+  get_tables <- function(days, tr, parameters) {
     stopifnot(tr %in% names(parameters))
-    cumulative <- pdist_strat(days, tr, parameters)
-    names(cumulative) <- days
-    tbl.surv <- data.frame(
-      "weibull" = cumulative - pdist_weibull(days, tr),
-      "gamma" = cumulative - pdist_gamma(days, tr),
-      "generalised" = cumulative - pdist_ge(days, tr),
-      "imp.weibull" = cumulative - weibull_parametric(days, tr),
-      "aft.weibull" = cumulative - weibull_aft(days, tr),
-      row.names = days
+    tbl.surv <- matrix(
+      c(
+        1 - pdist_weibull(days, tr),
+        1 - pdist_gamma(days, tr),
+        1 - pdist_ge(days, tr),
+        1 - weibull_parametric(days, tr),
+        1 - weibull_aft(days, tr)
+      ),
+      nrow = length(days),
+      ncol = 5,
+      dimnames = list(
+        days,
+        c(
+          "weibull",
+          "gamma",
+          "generalised",
+          "imp.weibull",
+          "aft.weibull"
+        )
+      )
     )
-    attr(tbl.surv, "true") <- 1 - cumulative
     return(tbl.surv)
   }
   
-  tbl <- lapply(names(parameters), function(tr) get_table(days, tr, parameters))
+  tbl <- sapply(names(parameters), function(tr) get_tables(days, tr, parameters), simplify = "array")
   names(tbl) <- names(parameters)
   attr(tbl, "AIC") <- AIC
   return(tbl)
@@ -293,33 +303,45 @@ treat.prop <- list("1" = list("A" = 0.3, "B" = 0.2, "C" = 0.5),
                    "2" = list("A" = 0.47, "B" = 0.36, "C" = 0.17))
 parameters <- list("A" = c(0.8, 500), "B" = c(0.9, 500), "C" = c(0.7, 500))
 lost.prop <- c("1" = 0.014, "2" = 0.018)
-duration <- 1095
+duration <- 1826
 start <- as.Date("2001-01-01")
 
-# Find average bias
-days <- as.numeric(month_end(start + 1 + c(0, 1, 2, 3, 4, 5, 11, 17, 23, 35, 47, 59)*31) - start)
-ndays <- length(days)
-tbl.empty <- data.frame(
-  "weibull" = rep(0, ndays), 
-  "gamma" = rep(0, ndays), 
-  "generalised" = rep(0, ndays), 
-  "imp.weibull" = rep(0, ndays), 
-  "aft.weibull" = rep(0, ndays)
-)
-tbl.surv <- list("A" = tbl.empty, "B" = tbl.empty, "C" = tbl.empty, "AIC" = rep(0, 5))
+models <- c("weibull", "gamma", "generalised", "imp.weibull", "aft.weibull")
+nmod <- length(models)
+tr.names <- names(parameters)
+
+# Generate the data sets and fit the models
 n.iter <- 100
+days <- c(31, 59, 90, 120, 151, 181, 365, 546, 730, 1095, 1461, 1826)
+#days <- as.numeric(month_end(start + 1 + c(0, 1, 2, 3, 4, 5, 11, 17, 23, 35, 47, 59)*31) - start)
+ndays <- length(days)
+true.surv <- sapply(tr.names, function(tr) 1 - pdist_strat(days, tr, parameters))
+attr(true.surv, "dimnames") <- list(days, tr.names)
+surv.est <- array(0, dim = c(ndays, nmod, n.iter, 3), dimnames = list(days, models, 1:n.iter, tr.names))
+tbl.bias <- array(NA, dim = c(3, ndays, nmod, 6), dimnames = list(tr.names, days, models, c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")))
+tbl.AIC <- array(0, dim = c(nmod, n.iter), dimnames = list(models, 1:n.iter))
+avg.AIC <- array(NA, dim = c(nmod, 6), dimnames = list(models, c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")))
+#tbl.mse <- array(0, dim = c(3, nmod, n.iter), dimnames = list(tr.names, models, 1:n.iter))
+tbl.se <- array(0, dim = c(3, ndays, nmod), dimnames = list(tr.names, days, models))
+
 # Add a progress bar to help estimate how long the for loop would take
 pb <- txtProgressBar(min = 0, max = n.iter, style = 3, width = 50, char = "=")
 for(i in 1:n.iter) {
   df.obs <- generate_df(sizes, treat.prop, parameters, start, duration, lost.prop)
   x <- estimate_pars(df.obs, parameters, days)
-  tbl.surv$A <- tbl.surv$A + x$A/100
-  tbl.surv$B <- tbl.surv$B + x$B/100
-  tbl.surv$C <- tbl.surv$C + x$C/100
-  tbl.surv$AIC <- tbl.surv$AIC + attr(x, "AIC")/100
+  surv.est[,,i,] <- x
+  tbl.AIC[,i] <- attr(x, "AIC")
   setTxtProgressBar(pb, i)
 }
 
-
+for(tr in tr.names) {
+  for(d in 1:ndays) {
+    for(m in 1:nmod) {
+      tbl.bias[tr,d,m,] <- summary(surv.est[d,m,,tr] - true.surv[d,tr])
+      tbl.se[tr,d,m] <- sum((surv.est[d,m,,tr] - true.surv[d,tr])**2)/n.iter
+      avg.AIC[m,] <- summary(tbl.AIC[m,])
+    }
+  }
+}
 
 
