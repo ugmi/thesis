@@ -139,9 +139,45 @@ Investigated the parametrisations of R functions for AFT and Weibull models.
 
 # 18/02/2026
 Cleaned up the functions for estimation from fitted models.  
-Visualised the modelling and the observed distributions.  
+Visualized the modelling and the observed distributions.  
 
 # 19/02/2026
-Simulated a propotional hazards scenario.  
+Simulated a proportional hazards scenario.  
 Read about confidence intervals.  
 
+# 20/02/2026
+Wrote a draft for the introduction.  
+Searched for relevant literature.  
+Clarified the modelling steps.  
+
+# 21/02/2026
+
+# 22/02/2026
+
+# 23/02/2026
+Re-read a paper about measurement error in parametric models for interval-censored data.  
+
+# 24/02/2026
+Added plots for the estimated distribution function of the observed variable.
+
+# 25/02/2026
+Derived the five-year probability estimates for the different models.  
+
+# 26/02/2026
+Updated the estimation functions to calculate standard errors.  
+
+# 27-28/02/2026
+
+# 01-05/03/2026
+
+# 06/03/2026
+Read through the papers suggested by the supervisor.  
+
+# 07/03/2026
+Fixed the data simulating process.  
+Listed possible optimization functions to use in R.  
+
+# 08/03/2026
+Optimized model fitting for different imputation scenarios.  
+Wrote a function for predicting survival for different survival models.  
+Added fitting and prediction for models for interval-censored data.  
