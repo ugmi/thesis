@@ -1,0 +1,378 @@
+---
+title: "demo"
+author: "Ugne Milasiunaite"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(survival)
+library(icenReg)
+```
+
+# Heper functions
+
+## Distribution and hazard functions for (stratified) Weibull distribution
+
+```{r}
+#' Stratified distribution function with no explanatory variables
+#' 
+#' @param v Random vector
+#' @param x Treatment indicator
+#' @return Vector of cumulative probabilities
+pdist_strat <- function(v, x, pars) {
+  lst <- lapply(names(pars), function(tr) 
+    pweibull(v[x == tr], shape = pars[[tr]][[1]], scale = pars[[tr]][[2]]))
+  return(do.call(c, lst))
+}
+
+
+#' Stratified hazard function with no explanatory variables
+#' 
+#' @param v Random vector
+#' @param x Treatment indicator
+#' @return Vector of hazards
+hazard_strat <- function(v, x, pars) {
+  lst <- lapply(names(pars), function(tr)
+    dweibull(v[x == tr], pars[[tr]][[1]], pars[[tr]][[2]]) / (1 - pdist_strat(v[x == tr], tr, pars)))
+  return(do.call(c, lst))
+}
+```
+
+## Generating the data set
+
+```{r}
+#' Generate time-to-event data from the Weibull distribution
+#' 
+#' @param n A named list providing the register sizes
+#' @param proportions A named list of named lists of the proportions of people receiving each treatment for each register
+#' @param pars A named list of Weibull dist. parameter values for each treatment
+#' @return A data frame with four columns: survival time, probability, treatment type, register
+generate_weibull <- function(n, proportions, pars) {
+  # Save names for later use
+  regs <- names(proportions)
+  treatments <- names(pars)
+
+  # Calculation of sizes
+  k <- sapply(regs, function(i)
+    sapply(treatments, function(tr)
+      round(n[[i]] * proportions[[i]][[tr]])))
+  
+  # Generate time-to-event data
+  t.vec <- sapply(treatments, function(i) 
+    rweibull(sum(k[i,]), shape = pars[[i]][[1]], scale = pars[[i]][[2]]))
+  
+  # Create the combined data set
+  df <- do.call(rbind, lapply(treatments, function(tr)
+    data.frame(
+      "time" = t.vec[,tr],
+      "survival" = 1 - pweibull(t.vec[,tr], pars[[tr]][[1]], pars[[tr]][[2]]),
+      "treatment" = as.factor(tr),
+      "register" = as.factor(rep(regs, k[tr, ]))
+    )))
+  
+  return(df)
+}
+
+
+#' Generate status, entry and exit dates given survival time in days
+#' 
+#' @param days Vector of survival time in days
+#' @param duration Duration of enrollment in days
+#' @param followup Duration of follow-up from end of enrollment in days
+#' @param prob Probability of being lost-to-follow-up for each individual
+#' @return A data frame with
+generate_censoring <- function(days, duration, followup, prob) {
+  # Generate entry times
+  K <- length(days)
+  lost <- rbinom(K, 1, prob)
+  t0 <- if(duration > 0) ceiling(runif(K, 0, duration)) else 0
+  
+  # Create the data frame
+  df <- data.frame(
+    "status" = as.factor(ifelse(
+      lost, "Lost", ifelse(days > t0 + followup, "Alive", "Dead")
+    )))
+  df["exit"] <- ifelse(
+    df$status == "Alive",
+    t0 + followup,
+    ifelse(!lost, days, ceiling(runif(K, 0, pmin(t0 + followup, days))))
+  )
+  
+  return(df)
+}
+
+
+#' Generate lower and upper limits for interval-censored data
+#' 
+#' @param exit Date of exit
+#' @param exact Binary indicator whether the date should be left exact
+#' @param infinite Binary indicator if the upper limit is infinite
+#' @return
+generate_intervals <- function(exit, exact, infinite) {
+  L <- ifelse(exact | infinite, exit, exit - floor(runif(length(exact), 0, pmin(exit, 30))))
+  U <- ifelse(exact, exit, ifelse(infinite, Inf, L + 30))
+  return(data.frame("lower" = L, "upper" = U))
+}
+
+
+#' Generate the data set
+#' 
+#' @param n A named list providing the register sizes
+#' @param proportions A named list of named lists of the proportions of people receiving each treatment for each register
+#' @param pars A named list of Weibull dist. parameter values for each treatment
+#' @param duration Duration of enrollment in days
+#' @param followup Duration of follow-up from end of enrollment in days
+#' @param prob Probability of being lost-to-follow-up in each register
+generate_df <- function(n, proportions, pars, duration, followup, prob) {
+  df <- generate_weibull(n, proportions, pars)
+  df.censoring <- generate_censoring(ceiling(df$time), duration, followup, prob[df$register])
+  df.intervals <- generate_intervals(
+    df.censoring$exit,
+    exact = df$register == "1" & df.censoring$status == "Dead",
+    infinite = df.censoring$status != "Dead"
+  )
+  return(do.call(cbind, list(df, df.censoring, df.intervals)))
+}
+
+```
+
+# Simulation
+
+```{r}
+set.seed(311)
+
+N <- 4000
+N.prop <- 1/2
+
+# Description of the setting
+sizes <- c("1" = N*N.prop, "2" = N*(1-N.prop))
+treat.prop <- list("1" = list("A" = 0.5, "B" = 0.5), 
+                   "2" = list("A" = 0.5, "B" = 0.5))
+parameters <- list("A" = c(0.5, 2000), "B" = c(0.6, 2500))
+lost.prop <- c("1" = 0.01, "2" = 0.01)
+duration <- 365
+followup <- 1826
+
+tr.names <- names(parameters)
+cols <- c("A" = "#009292", "B" = "#B66DFF")
+
+# Create the observed data set
+df.obs <- generate_df(sizes, treat.prop, parameters, duration, followup, lost.prop)
+df.obs["obs"] <- ifelse(
+  df.obs$register == 1,
+  df.obs$exit,
+  ifelse(df.obs$status == "Dead", df.obs$upper, df.obs$exit)
+)
+
+df.obs[c(940:941, 1200:1201, 2040:2041, 3200:3201),]
+```
+
+Checks for data
+
+```{r}
+# exit, lower, obs cannot be more than duration + followup
+all(c(df.obs$exit, df.obs$lower, df.obs$obs) <= duration + followup)
+# lower cannot be bigger than upper
+all(df.obs$lower <= df.obs$upper)
+```
+
+# Model fitting
+
+```{r}
+# models for right-censored data
+fit_imputed <- function(Surv.obj, df, tr.cols = cols) {
+  tr.names <- names(tr.cols)
+  
+  # 1. Kaplan-Meier estimator
+  fit.KM <- survfit(eval(Surv.obj) ~ treatment, data = df, conf.type = "log-log")
+  plot(fit.KM, main = "Kaplan-Meier survival curves", col = tr.cols,
+     xlab = "Days", ylab = "Survival")
+  points(df$time, df$survival, cex = 0.1, col = "#99999966")
+  legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
+  
+  # Check for proportional hazards
+  plot(fit.KM, fun = "cloglog", col = cols, xlab = "Days", ylab = "log(-log(Survival))")
+  legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
+  
+  # 2. Cox proportional hazards model
+  fit.cox <- coxph(eval(Surv.obj) ~ treatment, data = df)
+  
+  # Check for proportional hazards
+  res <- cox.zph(fit.cox, terms = TRUE)
+  print(res)
+  plot(res, resid = TRUE, main = "Schoenfeld residual plot")
+  
+  # 3. Weibull AFT/PH model
+  fit.aft <- survreg(eval(Surv.obj) ~ treatment, data = df, dist = "weibull")
+  
+  # 4. Weibull AFT/PH stratified model
+  fit.aft.strat <- survreg(eval(Surv.obj) ~ strata(treatment), data = df, dist = "weibull")
+  
+  return(list(fit.KM, fit.cox, fit.aft, fit.aft.strat))
+}
+```
+
+## If everyone's times were accurate to the day
+
+```{r}
+models.day <- fit_imputed(expression(Surv(exit, status == "Dead")), df.obs)
+```
+
+Predict survival probabilities with 95% confidence intervals
+
+```{r}
+predict_surv_imputed <- function(D, models) {
+  KM <- models[[1]]$surv[models[[1]]$time == D]
+  KM.lower <- models[[1]]$lower[models[[1]]$time == D]
+  KM.upper <- models[[1]]$upper[models[[1]]$time == D]
+  COX <- predict(
+    models[[2]],
+    data.frame(exit = D, obs = D, obs.mid = D, status = "Dead", 
+               treatment = c("A", "B")),
+    type = "survival",
+    se.fit = TRUE
+  )
+  COX.lower <- COX$fit - qnorm(0.975) * COX$se.fit
+  COX.upper <- COX$fit + qnorm(0.975) * COX$se.fit
+  AFT <- 1 - pweibull(D, 
+                      shape = 1 / models[[3]]$scale,
+                      scale = c(exp(models[[3]]$coefficients[[1]]),
+                                exp(sum(models[[3]]$coefficients))))
+  AFT.STRAT <- 1 - pweibull(D,
+                            shape = 1 / models[[4]]$scale,
+                            scale = exp(models[[4]]$coefficients))
+  tbl <- data.frame(
+    "A" = c(KM[1], COX$fit[1], AFT[1], AFT.STRAT[1]),
+    "A.lower" = c(KM.lower[1], COX.lower[1], NA, NA),
+    "A.upper" = c(KM.upper[1], COX.upper[1], NA, NA),
+    "B" = c(KM[2], COX$fit[2], AFT[2], AFT.STRAT[2]),
+    "B.lower" = c(KM.lower[2], COX.lower[2], NA, NA),
+    "B.upper" = c(KM.upper[2], COX.upper[2], NA, NA),
+    row.names = c("KM", "COX", "AFT", "AFT.STRAT")
+  )
+  return(tbl)
+}
+(true1826 <- c("A" = 1 - pweibull(1826, parameters[["A"]][[1]], parameters[["A"]][[2]]), 
+               "B" = 1 - pweibull(1826, parameters[["B"]][[1]], parameters[["B"]][[2]])))
+```
+
+```{r}
+predict_surv_imputed(1826, models.day)
+```
+
+## If we take the upper limit as exact time for register 2
+
+```{r}
+models.upp <- fit_imputed(expression(Surv(obs, status == "Dead")), df.obs)
+```
+
+```{r}
+predict_surv_imputed(1826, models.upp)
+```
+
+## If we take the upper limit - 15 (middle of the month) as exact time for register 2
+
+```{r}
+df.obs["obs.mid"] <- ifelse(df.obs$register == "2" & df.obs$status == "Dead", 
+                            df.obs$obs - 15, df.obs$obs)
+models.mid <- fit_imputed(expression(Surv(obs.mid, status == "Dead")), df.obs)
+```
+
+```{r}
+predict_surv_imputed(1826, models.mid)
+```
+
+## Interval censoring methods
+
+```{r}
+fit_interval <- function(Surv.obj, df, tr.cols = cols) {
+  tr.names <- names(tr.cols)
+  
+  # 1. Non-Parametric Maximum Likelihood Estimator (NPMLE) aka Turnbull’s Estimator
+  fit.NPMLE <- ic_np(eval(Surv.obj) ~ treatment, data = df)
+  plot(fit.NPMLE, main = "NPMLE curves", col = tr.cols,
+     xlab = "Days", ylab = "Survival")
+  points(df$time, df$survival, cex = 0.1, col = "#99999966")
+  legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
+  
+  # 2. Semi-Parametric proportional hazards model
+  #fit.semi.ph <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "ph")
+  
+  # 3. Semi-Parametric proportional odds model
+  #fit.semi.po <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "po")
+  
+  # 4. Weibull AFT/PH
+  fit.aft <- survreg(eval(Surv.obj) ~ treatment, data = df, dist = "weibull")
+  
+  # 5. Weibull AFT/PH stratified
+  fit.aft.strat <- survreg(eval(Surv.obj) ~ strata(treatment), data = df, dist = "weibull")
+  
+  # 6. Weibull AFT/PH icenreg
+  fit.aft.ic <- ic_par(eval(Surv.obj) ~ treatment, data = df, model = "aft", 
+                       dist = "weibull", weights = NULL)
+  
+  return(list(fit.NPMLE, NA, NA, fit.aft, fit.aft.strat, fit.aft.ic))
+}
+```
+
+Fit the models
+
+```{r}
+models.int <- fit_interval(expression(Surv(lower, upper, type = "interval2")), df.obs)
+```
+
+Predict survival probabilities with 95% confidence intervals
+
+```{r}
+predict_surv_interval <- function(D, models) {
+  survA <- models[[1]]$scurves$A
+  survB <- models[[1]]$scurves$B
+  NPMLE <- c(survA$S_curves[[1]][survA$Tbull_ints[, 2] >= D][1],
+             survB$S_curves[[1]][survB$Tbull_ints[, 2] >= D][1])
+  AFT <- 1 - pweibull(D, 
+                      shape = 1 / models[[4]]$scale,
+                      scale = c(exp(models[[4]]$coefficients[[1]]),
+                                exp(sum(models[[4]]$coefficients))))
+  AFT.STRAT <- 1 - pweibull(D,
+                            shape = 1 / models[[5]]$scale,
+                            scale = exp(models[[5]]$coefficients))
+  coeffs <- exp(models[[6]]$coefficients)
+  AFT.IC <- 1 - getFitEsts(models.int[[6]], 
+                           newdata = data.frame(treatment = c("A", "B")), 
+                           q = 1826)
+  tbl <- data.frame(
+    "A" = c(NPMLE[1], AFT[1], AFT.STRAT[1], AFT.IC[1]),
+    "A.lower" = c(NA, NA, NA, NA),
+    "A.upper" = c(NA, NA, NA, NA),
+    "B" = c(NPMLE[2], AFT[2], AFT.STRAT[2], AFT.IC[2]),
+    "B.lower" = c(NA, NA, NA, NA),
+    "B.upper" = c(NA, NA, NA, NA),
+    row.names = c("NPMLE", "AFT", "AFT.STRAT", "AFT.IC")
+  )
+  return(tbl)
+}
+(true1826 <- c("A" = 1 - pweibull(1826, parameters[["A"]][[1]], parameters[["A"]][[2]]), 
+               "B" = 1 - pweibull(1826, parameters[["B"]][[1]], parameters[["B"]][[2]])))
+```
+
+```{r}
+predict_surv_interval(1826, models.int)
+```
+
+## Proposed method
+
+```{r}
+
+
+```
+
+
+# Comparisons
+
+
+
