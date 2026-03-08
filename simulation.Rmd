@@ -225,6 +225,10 @@ t <- df.obs[df.obs$status == "Dead", "time"]
 prob <- df.obs[df.obs$status == "Dead", "survival"]
 xt <- df.obs[df.obs$status == "Dead", "treatment"]
 
+ta <- sort(unique(floor(t[xt == "A"])))
+tb <- sort(unique(floor(t[xt == "B"])))
+tc <- sort(unique(floor(t[xt == "C"])))
+
 # Helper functions
 fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
 logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
@@ -241,18 +245,31 @@ Fz <- function(z, b, x) {
 }
 mle.exp <- nlm(logL, c(1/100, 1/100, 1/100), l, u, x, hessian = TRUE)
 est.exp <- 1 - Fz(t, mle.exp$estimate, xt)
+probs.expA <- fy(ta[1:302], ta[2:303], mle.exp$estimate, "A")
+probs.expB <- fy(tb[1:241], tb[2:242], mle.exp$estimate, "B")
+probs.expC <- fy(tc[1:287], tc[2:288], mle.exp$estimate, "C")
 
 Fz <- function(z, b, x) {
   (x == "A")*pweibull(z, exp(b[1]), exp(b[2])) + (x == "B")*pweibull(z, exp(b[3]), exp(b[4])) + (x == "C")*pweibull(z, exp(b[5]), exp(b[6]))
 }
 mle.weibull <- nlm(logL, c(-0.2, 6, -0.2, 6, -0.2, 6), l, u, x, hessian = TRUE)
 est.weibull <- 1 - Fz(t, mle.weibull$estimate, xt)
+probs.weibullA <- fy(ta[1:302], ta[2:303], mle.weibull$estimate, "A")
+probs.weibullB <- fy(tb[1:241], tb[2:242], mle.weibull$estimate, "B")
+probs.weibullC <- fy(tc[1:287], tc[2:288], mle.weibull$estimate, "C")
+
+dist.weibullA <- fy(0:1095, 1:1096, mle.weibull$estimate, "A")
+dist.weibullB <- fy(0:1095, 1:1096, mle.weibull$estimate, "B")
+dist.weibullC <- fy(0:1095, 1:1096, mle.weibull$estimate, "C")
 
 Fz <- function(z, b, x) {
   (x == "A")*pgamma(z, b[1], b[2]) + (x == "B")*pgamma(z, b[3], b[4]) + (x == "C")*pgamma(z, b[5], b[6])
 }
 mle.gamma <- nlm(logL, c(1, 1/100, 1, 1/100, 1, 1/100), l, u, x, hessian = TRUE)
 est.gamma <- 1 - Fz(t, mle.gamma$estimate, xt)
+probs.gammaA <- fy(ta[1:302], ta[2:303], mle.gamma$estimate, "A")
+probs.gammaB <- fy(tb[1:241], tb[2:242], mle.gamma$estimate, "B")
+probs.gammaC <- fy(tc[1:287], tc[2:288], mle.gamma$estimate, "C")
 
 # Plot and compare the distributions
 plot(t, prob, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
@@ -265,6 +282,58 @@ legend("topright", lty = rep(1, 4), bty = "n",
        legend = c("True distribution", "Exponential", "Weibull", "Gamma"))
 
 ```
+
+Compare observed vs modeled
+
+```{r}
+# exponential
+plot(t, est.exp, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves (Exp)", xlim = c(0, 50), ylim = c(0.8, 1))
+lines(ta, c(1, 1 - cumsum(probs.expA)), col = cols["A"])
+lines(tb, c(1, 1 - cumsum(probs.expB)), col = cols["B"])
+lines(tc, c(1, 1 - cumsum(probs.expC)), col = cols["C"])
+points(t, prob, cex = 0.1, col = "red")
+legend("topright", lty = c(1,1,1), bty = "n", col = cols, legend = names(cols))
+legend("bottomleft", pch = c(20, 20), bty = "n", col = c("red", "black"),
+       legend = c("True", "Estimated"))
+```
+
+```{r}
+# gamma
+plot(t, est.gamma, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves (Gamma)", xlim = c(0, 50), ylim = c(0.8, 1))
+lines(ta, c(1, 1 - cumsum(probs.gammaA)), col = cols["A"])
+lines(tb, c(1, 1 - cumsum(probs.gammaB)), col = cols["B"])
+lines(tc, c(1, 1 - cumsum(probs.gammaC)), col = cols["C"])
+points(t, prob, cex = 0.1, col = "red")
+legend("topright", lty = c(1,1,1), bty = "n", col = cols, legend = names(cols))
+legend("bottomleft", pch = c(20, 20), bty = "n", col = c("red", "black"),
+       legend = c("True", "Estimated"))
+```
+
+```{r}
+# weibull
+plot(t, est.weibull, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves (Weibull)", xlim = c(0, 50), ylim = c(0.8, 1))
+lines(ta, c(1, 1 - cumsum(probs.weibullA)), col = cols["A"])
+lines(tb, c(1, 1 - cumsum(probs.weibullB)), col = cols["B"])
+lines(tc, c(1, 1 - cumsum(probs.weibullC)), col = cols["C"])
+points(t, prob, cex = 0.1, col = "red")
+legend("topright", lty = c(1,1,1), bty = "n", col = cols, legend = names(cols))
+legend("bottomleft", pch = c(20, 20), bty = "n", col = c("red", "black"),
+       legend = c("True", "Estimated"))
+```
+
+```{r}
+plot(t, est.weibull, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves (Weibull)", xlim = c(0, 50), ylim = c(0.8, 1))
+points(t, prob, cex = 0.1, col = "red")
+lines(0:1096, c(1, 1 - cumsum(dist.weibullA)), col = cols["A"])
+lines(0:1096, c(1, 1 - cumsum(dist.weibullB)), col = cols["B"])
+lines(0:1096, c(1, 1 - cumsum(dist.weibullC)), col = cols["C"])
+legend("topright", lty = c(1,1,1), bty = "n", col = cols, legend = names(cols))
+```
+
 
 Proposed approach, generalized
 
@@ -286,10 +355,26 @@ pdist_ge <- function(z, b, x) plogis(g(s(z), b, x))
 # estimate the parameters
 pars <- nlm(logL, rep(1, 6), u=su, l=sl, x=df.obs$treatment)
 est.ge <- 1 - Fz(s(t), pars$estimate, xt)
+probs.geA <- fy(s(ta[1:302]), s(ta[2:303]), pars$estimate, "A")
+probs.geB <- fy(s(tb[1:241]), s(tb[2:242]), pars$estimate, "B")
+probs.geC <- fy(s(tc[1:287]), s(tc[2:288]), pars$estimate, "C")
 # plot the estimated survival distributions
 plot(t, prob, col="black", cex = 0.1, xlab = "Days", ylab = "Survival")
 points(t, est.weibull, col = "#72BF4066", cex = 0.1)
 points(t, est.ge, col = "navy", cex = 0.1)
+```
+
+```{r}
+# generalised approach
+plot(t, est.ge, cex = 0.1, xlab = "Days", ylab = "Survival probability", 
+     main = "Fitted survival curves (GE)", xlim = c(0, 50), ylim = c(0.8, 1))
+lines(ta, c(1, 1 - cumsum(probs.geA)), col = cols["A"])
+lines(tb, c(1, 1 - cumsum(probs.geB)), col = cols["B"])
+lines(tc, c(1, 1 - cumsum(probs.geC)), col = cols["C"])
+points(t, prob, cex = 0.1, col = "red")
+legend("topright", lty = c(1,1,1), bty = "n", col = cols, legend = names(cols))
+legend("bottomleft", pch = c(20, 20), bty = "n", col = c("red", "black"),
+       legend = c("True", "Estimated"))
 ```
 
 Proposed approach, accelerated failure time
@@ -386,24 +471,30 @@ legend("topright", lty = rep(1, 3), bty = "n",
        legend = c("Kaplan-Meier curve", "Weibull", "Gamma"))
 ```
 
+Check proportional hazards assumption by plotting the cumulative hazard function.
+
+```{r}
+plot(KM, fun = "cumhaz", xlab = "Days", ylab = "Cumulative hazard")
+```
+
 Compare with a parametric approach.
 
 ```{r}
-ta <- t[xt == "A"]
-tb <- t[xt == "B"]
-tc <- t[xt == "C"]
+tA <- t[xt == "A"]
+tB <- t[xt == "B"]
+tC <- t[xt == "C"]
 fit.weibull <- survreg(Surv(days.mid, status == "Dead") ~ strata(treatment), 
                        data = df.obs[df.obs$days.mid != 0,], dist = "weibull")
 fit.weibull.probs <- c(
-  pweibull(ta, shape = 1/exp(fit.weibull$icoef[[2]]), 
+  pweibull(tA, shape = 1/exp(fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]])), 
-  pweibull(tb, shape = 1/exp(fit.weibull$icoef[[3]] + fit.weibull$icoef[[2]]), 
+  pweibull(tB, shape = 1/exp(fit.weibull$icoef[[3]] + fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]])),
-  pweibull(tc, shape = 1/exp(fit.weibull$icoef[[4]] + fit.weibull$icoef[[2]]), 
+  pweibull(tC, shape = 1/exp(fit.weibull$icoef[[4]] + fit.weibull$icoef[[2]]), 
            scale = exp(fit.weibull$icoef[[1]]))
 )
 
-plot(c(ta, tb, tc), 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", 
+plot(c(tA, tB, tC), 1 - fit.weibull.probs, xlab = "Days", ylab = "Survival", 
      col = "blue", main = "Stratified Weibull parametric model", cex = 0.1)
 #points(t, est.weibull, col = "#72BF4066", cex = 0.1)
 #points(t, est.gamma, col = "#FF000066", cex = 0.1)
@@ -429,6 +520,20 @@ mean(abs(prob - est.weibull))
 mean(abs(prob - est.exp))
 mean(abs(c(prob[xt == "A"], prob[xt == "B"], prob[xt == "C"]) - 1 + fit.weibull.probs))
 mean(abs(1 - pdist_strat(KM$time, rep(c("A", "B", "C"), KM$strata), parameters) - KM$surv))
+```
+
+Predicting survival for Weibull parametric (stratified)
+
+```{r}
+1 - pweibull(1826, shape=1/fit.weibull$scale, scale=exp(fit.weibull$coefficients))
+```
+
+
+Predicting survival for Weibull parametric (not stratified)
+
+```{r}
+1 - pweibull(1826, shape=1/fit.weibull$scale, scale=exp(predict(fit.weibull, newdata=data.frame(treatment = "A"), type="link"))) == 1 - pweibull(1826, shape=1/fit.weibull$scale, scale=exp(fit.weibull$coefficients[1]))
+1 - pweibull(1826, shape=1/fit.weibull$scale, scale=exp(predict(fit.weibull, newdata=data.frame(treatment = "B"), type="link"))) == 1 - pweibull(1826, shape=1/fit.weibull$scale, scale=exp(sum(fit.weibull$coefficients)))
 ```
 
 ## Check for proportional hazards assumption
@@ -480,6 +585,19 @@ plot(res, resid = TRUE)
 
 The test indicates that the assumption of proportional hazards is violated. By plotting the Schoenfeld residuals we see that the hazards seem proportional until around day 410, at which point the points start to go up and diverge from a horizontal line.
 
+```{r}
+# predicted
+zp <- predict(fit.cox, data.frame("days.mid" = 1826, "status" = "Dead", treatment = "A"), type = "survival", se.fit = TRUE)
+# estimated
+ze <- survfit(fit.cox, data.frame("days.mid" = 1826, "treatment" = "A"), conf.type = "log-log")
+sze <- summary(ze, times = c(0))
+estimate <- sze$surv
+lower <- sze$lower
+upper <- sze$upper
+
+cbind(estimate, lower, upper)
+```
+
 ## Methods for interval-censored data
 
 ```{r}
@@ -499,9 +617,9 @@ df.obs["days.upper"] <- ifelse(df.obs$days.upper == 0, 0.5, df.obs$days.upper)
 fit.par <- ic_par(cbind(days.lower, days.upper) ~ treatment, data = df.obs, 
                   model = "aft", dist = "weibull", weights = NULL)
 plot(fit.par, col = "red", xlim = c(0, 1000))
-plot(ta, 1 - pweibull(ta, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = cols["A"], cex = 0.1, xlab = "Days", ylab = "Survival")
-points(tb, 1 - pweibull(tb, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]])), col = cols["B"], cex = 0.1)
-points(tc, 1 - pweibull(tc, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[4]])), col = cols["C"], cex = 0.1)
+plot(tA, 1 - pweibull(tA, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]])), col = cols["A"], cex = 0.1, xlab = "Days", ylab = "Survival")
+points(tB, 1 - pweibull(tB, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[3]])), col = cols["B"], cex = 0.1)
+points(tC, 1 - pweibull(tC, shape = exp(fit.par$coefficients[[1]]), scale = exp(fit.par$coefficients[[2]] - fit.par$coefficients[[4]])), col = cols["C"], cex = 0.1)
 #points(t, prob, col = "black", cex = 0.1)
 ```
 
