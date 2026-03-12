@@ -12,36 +12,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(survival)
 library(icenReg)
+library(flexsurv)
 ```
 
 # Heper functions
-
-## Distribution and hazard functions for (stratified) Weibull distribution
-
-```{r}
-#' Stratified distribution function with no explanatory variables
-#' 
-#' @param v Random vector
-#' @param x Treatment indicator
-#' @return Vector of cumulative probabilities
-pdist_strat <- function(v, x, pars) {
-  lst <- lapply(names(pars), function(tr) 
-    pweibull(v[x == tr], shape = pars[[tr]][[1]], scale = pars[[tr]][[2]]))
-  return(do.call(c, lst))
-}
-
-
-#' Stratified hazard function with no explanatory variables
-#' 
-#' @param v Random vector
-#' @param x Treatment indicator
-#' @return Vector of hazards
-hazard_strat <- function(v, x, pars) {
-  lst <- lapply(names(pars), function(tr)
-    dweibull(v[x == tr], pars[[tr]][[1]], pars[[tr]][[2]]) / (1 - pdist_strat(v[x == tr], tr, pars)))
-  return(do.call(c, lst))
-}
-```
 
 ## Generating the data set
 
@@ -148,12 +122,13 @@ set.seed(311)
 
 N <- 4000
 N.prop <- 1/2
+N1 <- N*N.prop
 
 # Description of the setting
-sizes <- c("1" = N*N.prop, "2" = N*(1-N.prop))
+sizes <- c("1" = N1, "2" = N - N1)
 treat.prop <- list("1" = list("A" = 0.5, "B" = 0.5), 
                    "2" = list("A" = 0.5, "B" = 0.5))
-parameters <- list("A" = c(0.5, 2000), "B" = c(0.6, 2500))
+parameters <- list("A" = c(0.5, 2000), "B" = c(0.5, 2500))
 lost.prop <- c("1" = 0.01, "2" = 0.01)
 duration <- 365
 followup <- 1826
@@ -169,7 +144,7 @@ df.obs["obs"] <- ifelse(
   ifelse(df.obs$status == "Dead", df.obs$upper, df.obs$exit)
 )
 
-df.obs[c(940:941, 1200:1201, 2040:2041, 3200:3201),]
+df.obs[c((N1/2-20):(N1/2-19), (N1-19):(N1-20), (N1+19):(N1+20), (N-20):(N-19)),]
 ```
 
 Checks for data
@@ -179,6 +154,16 @@ Checks for data
 all(c(df.obs$exit, df.obs$lower, df.obs$obs) <= duration + followup)
 # lower cannot be bigger than upper
 all(df.obs$lower <= df.obs$upper)
+# people per treatment
+(N.tr <- table(df.obs$treatment))
+# people per treatment per register
+table(df.obs[c("register", "treatment")])
+# visualize the distribution of times
+dtimes <- table(list("time.int" = cut(df.obs$time, c(0, 1, 5, 30, 60, 180, 365, 1095, 1826, Inf)), "treatment" = df.obs$treatment))
+cbind(dtimes, "propA" = dtimes[, "A"] / N.tr["A"], "propB" = dtimes[, "B"] / N.tr["B"])
+# visualize status
+matrix(table(df.obs[c("status", "treatment", "register")]), nrow = 3, ncol = 4,
+       dimnames = list(c("Alive", "Dead", "Lost"), c("r1A", "r1B", "r2A", "r2B")))
 ```
 
 # Model fitting
@@ -243,9 +228,11 @@ predict_surv_imputed <- function(D, models) {
                       shape = 1 / models[[3]]$scale,
                       scale = c(exp(models[[3]]$coefficients[[1]]),
                                 exp(sum(models[[3]]$coefficients))))
+  AFT.AIC <- - 2*models[[3]]$loglik[2] + 2*length(models[[3]]$coefficients)
   AFT.STRAT <- 1 - pweibull(D,
                             shape = 1 / models[[4]]$scale,
                             scale = exp(models[[4]]$coefficients))
+  AFT.STRAT.AIC <- - 2*models[[4]]$loglik[2] + 2*length(models[[4]]$coefficients)
   tbl <- data.frame(
     "A" = c(KM[1], COX$fit[1], AFT[1], AFT.STRAT[1]),
     "A.lower" = c(KM.lower[1], COX.lower[1], NA, NA),
@@ -253,16 +240,15 @@ predict_surv_imputed <- function(D, models) {
     "B" = c(KM[2], COX$fit[2], AFT[2], AFT.STRAT[2]),
     "B.lower" = c(KM.lower[2], COX.lower[2], NA, NA),
     "B.upper" = c(KM.upper[2], COX.upper[2], NA, NA),
+    "AIC" = c(NA, NA, AFT.AIC, AFT.STRAT.AIC),
     row.names = c("KM", "COX", "AFT", "AFT.STRAT")
   )
   return(tbl)
 }
-(true1826 <- c("A" = 1 - pweibull(1826, parameters[["A"]][[1]], parameters[["A"]][[2]]), 
-               "B" = 1 - pweibull(1826, parameters[["B"]][[1]], parameters[["B"]][[2]])))
 ```
 
 ```{r}
-predict_surv_imputed(1826, models.day)
+surv.day <- predict_surv_imputed(1826, models.day)
 ```
 
 ## If we take the upper limit as exact time for register 2
@@ -272,7 +258,7 @@ models.upp <- fit_imputed(expression(Surv(obs, status == "Dead")), df.obs)
 ```
 
 ```{r}
-predict_surv_imputed(1826, models.upp)
+surv.upp <- predict_surv_imputed(1826, models.upp)
 ```
 
 ## If we take the upper limit - 15 (middle of the month) as exact time for register 2
@@ -284,49 +270,75 @@ models.mid <- fit_imputed(expression(Surv(obs.mid, status == "Dead")), df.obs)
 ```
 
 ```{r}
-predict_surv_imputed(1826, models.mid)
+surv.mid <- predict_surv_imputed(1826, models.mid)
 ```
 
 ## Interval censoring methods
 
 ```{r}
-fit_interval <- function(Surv.obj, df, tr.cols = cols) {
+fit_interval <- function(Surv.obj, df, tr.cols = cols, ph = FALSE) {
   tr.names <- names(tr.cols)
   
   # 1. Non-Parametric Maximum Likelihood Estimator (NPMLE) aka Turnbull’s Estimator
   fit.NPMLE <- ic_np(eval(Surv.obj) ~ treatment, data = df)
-  plot(fit.NPMLE, main = "NPMLE curves", col = tr.cols,
-     xlab = "Days", ylab = "Survival")
+  plot(
+    fit.NPMLE,
+    main = "NPMLE curves",
+    col = tr.cols,
+    xlab = "Days",
+    ylab = "Survival"
+  )
   points(df$time, df$survival, cex = 0.1, col = "#99999966")
-  legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
+  legend(
+    "bottomright",
+    lty = c(1, 1),
+    bty = "n",
+    col = tr.cols,
+    legend = tr.names
+  )
   
   # 2. Semi-Parametric proportional hazards model
-  #fit.semi.ph <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "ph")
+  # only fit if the hazards are proportional since otherwise won't converge
+  if(ph) {
+    fit.semi.ph <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "ph")
+  } else {
+    fit.semi.ph <- NA
+  }
   
   # 3. Semi-Parametric proportional odds model
-  #fit.semi.po <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "po")
+  fit.semi.po <- ic_sp(eval(Surv.obj) ~ treatment, data = df, model = "po")
   
   # 4. Weibull AFT/PH
   fit.aft <- survreg(eval(Surv.obj) ~ treatment, data = df, dist = "weibull")
   
   # 5. Weibull AFT/PH stratified
-  fit.aft.strat <- survreg(eval(Surv.obj) ~ strata(treatment), data = df, dist = "weibull")
+  fit.aft.strat <- survreg(
+    eval(Surv.obj) ~ strata(treatment),
+    data = df,
+    dist = "weibull"
+  )
   
   # 6. Weibull AFT/PH icenreg
-  fit.aft.ic <- ic_par(eval(Surv.obj) ~ treatment, data = df, model = "aft", 
-                       dist = "weibull", weights = NULL)
+  fit.aft.ic <- ic_par(
+    eval(Surv.obj) ~ treatment,
+    data = df,
+    model = "aft",
+    dist = "weibull",
+    weights = NULL
+  )
   
-  return(list(fit.NPMLE, NA, NA, fit.aft, fit.aft.strat, fit.aft.ic))
+  return(list(fit.NPMLE, fit.semi.ph, fit.semi.po, fit.aft, fit.aft.strat, fit.aft.ic))
 }
 ```
 
 Fit the models
 
 ```{r}
-models.int <- fit_interval(expression(Surv(lower, upper, type = "interval2")), df.obs)
+models.int <- fit_interval(
+  expression(Surv(lower, upper, type = "interval2")), 
+  df.obs
+)
 ```
-
-Predict survival probabilities with 95% confidence intervals
 
 ```{r}
 predict_surv_interval <- function(D, models) {
@@ -334,45 +346,214 @@ predict_surv_interval <- function(D, models) {
   survB <- models[[1]]$scurves$B
   NPMLE <- c(survA$S_curves[[1]][survA$Tbull_ints[, 2] >= D][1],
              survB$S_curves[[1]][survB$Tbull_ints[, 2] >= D][1])
+  if(class(models[[2]]) == "ic_ph") {
+    SEMI.PH <- 1 - getFitEsts(models[[2]], 
+                              newdata = data.frame(treatment = c("A", "B")), 
+                              q = 1826)
+  } else {
+    SEMI.PH <- c(NA, NA)
+  }
+  if(class(models[[3]]) == "ic_po"){
+    SEMI.PO <- 1 - getFitEsts(models[[3]], 
+                            newdata = data.frame(treatment = c("A", "B")), 
+                            q = 1826)
+  } else {
+    SEMI.PO <- c(NA, NA)
+  }
   AFT <- 1 - pweibull(D, 
                       shape = 1 / models[[4]]$scale,
                       scale = c(exp(models[[4]]$coefficients[[1]]),
                                 exp(sum(models[[4]]$coefficients))))
+  AFT.AIC <- - 2*models[[4]]$loglik[2] + 2*length(models[[4]]$coefficients)
   AFT.STRAT <- 1 - pweibull(D,
                             shape = 1 / models[[5]]$scale,
                             scale = exp(models[[5]]$coefficients))
-  coeffs <- exp(models[[6]]$coefficients)
-  AFT.IC <- 1 - getFitEsts(models.int[[6]], 
-                           newdata = data.frame(treatment = c("A", "B")), 
-                           q = 1826)
+  AFT.STRAT.AIC <- - 2*models[[5]]$loglik[2] + 2*length(models[[5]]$coefficients)
   tbl <- data.frame(
-    "A" = c(NPMLE[1], AFT[1], AFT.STRAT[1], AFT.IC[1]),
-    "A.lower" = c(NA, NA, NA, NA),
-    "A.upper" = c(NA, NA, NA, NA),
-    "B" = c(NPMLE[2], AFT[2], AFT.STRAT[2], AFT.IC[2]),
-    "B.lower" = c(NA, NA, NA, NA),
-    "B.upper" = c(NA, NA, NA, NA),
-    row.names = c("NPMLE", "AFT", "AFT.STRAT", "AFT.IC")
+    "A" = c(NPMLE[1], SEMI.PH[1], SEMI.PO[1], AFT[1], AFT.STRAT[1]),
+    "A.lower" = c(NA, NA, NA, NA, NA),
+    "A.upper" = c(NA, NA, NA, NA, NA),
+    "B" = c(NPMLE[2], SEMI.PH[2], SEMI.PO[2], AFT[2], AFT.STRAT[2]),
+    "B.lower" = c(NA, NA, NA, NA, NA),
+    "B.upper" = c(NA, NA, NA, NA, NA),
+    "AIC" = c(NA, NA, NA, AFT.AIC, AFT.STRAT.AIC),
+    row.names = c("NPMLE", "SEMI.PH", "SEMI.PO", "AFT", "AFT.STRAT")
   )
   return(tbl)
 }
-(true1826 <- c("A" = 1 - pweibull(1826, parameters[["A"]][[1]], parameters[["A"]][[2]]), 
-               "B" = 1 - pweibull(1826, parameters[["B"]][[1]], parameters[["B"]][[2]])))
-```
 
-```{r}
-predict_surv_interval(1826, models.int)
+surv.int <- predict_surv_interval(1826, models.int)
 ```
 
 ## Proposed method
 
 ```{r}
+#' Fit a distribution using the proposed approach
+#' 
+#' @param df A data frame with study data
+#' @param dist The name of the parametric distribution to fit
+#' @return A fitted cumulative distribution function of the modelling variable
+proposed_approach <- function(df, dist) {
+  fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+  logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+  
+  # Create coarsening intervals
+  l <- ifelse(df$lower - df$upper == 0, df$lower - 1, df$lower)
+  u <- df$upper
+  # Covariate vector
+  x <- df$treatment
+  
+  if (dist %in% c("exp", "exponential")) {
+    Fz <- function(z, b, x) {
+      (x == "A")*pexp(z, b[1]) + (x == "B")*pexp(z, b[2])
+    }
+    mle <- nlm(logL, c(1/100, 1/100), l, u, x, hessian = TRUE)
+  } else if (dist == "gamma") {
+    Fz <- function(z, b, x) {
+      (x == "A")*pgamma(z, b[1], b[2]) + (x == "B")*pgamma(z, b[3], b[4])
+    }
+    mle <- nlm(logL, c(1, 1/100, 1, 1/100), l, u, x, hessian = TRUE)
+  } else if (dist == "weibull") {
+    Fz <- function(z, b, x) {
+      (x == "A")*pweibull(z, exp(b[1]), exp(b[2])) + 
+        (x == "B")*pweibull(z, exp(b[3]), exp(b[4]))
+    }
+    mle <- nlm(logL, c(-0.2, 6, -0.2, 6), l, u, x, hessian = TRUE)
+  }
+  stopifnot("The optimizer failed." = mle$minimum > 1)
+  f <- function(z, x) Fz(z, mle$estimate, x)
+  attr(f, "AIC") <- 2*mle$minimum + 2*length(mle$estimate)
+  attr(f, "mle") <- mle$estimate
+  return(f)
+}
 
+#' Fit a distribution using the generalised version of the proposed approach
+#' 
+#' @param df A data frame with study data
+#' @return A fitted cumulative distribution function of the modelling variable
+generalized_approach <- function(df) {
+  # Define the pre-transform
+  s <- function(z) qlogis(pweibull(z, 0.5, 2000))
+  # Create the coarsening limits
+  sl <- s(ifelse(df$lower - df$upper == 0, df$lower - 1, df$lower))
+  su <- s(df$upper)
+  # Define the modelling distribution and polynomial approximation
+  Fz <- function(z, b, x) plogis(g(z, b, x))
+  g <- function(z, b, x) {
+    (b[1] + b[2]*(x == "B")) + z*(b[3] + b[4]*(x == "B"))
+  }
+  fy <- function(l, u, b, x) Fz(u, b, x) - Fz(l, b, x)
+  logL <- function(b, l, u, x) -sum(log(fy(l, u, b, x)))
+  # Estimate the parameters
+  mle <- nlm(logL, rep(1, 4), u=su, l=sl, x=df$treatment)
+  stopifnot("The optimizer failed." = mle$minimum > 1)
+  # Save the fitted function
+  f <- function(z, x) plogis(g(s(z), mle$estimate, x))
+  attr(f, "AIC") <- 2*mle$minimum + 2*length(mle$estimate)
+  return(f)
+}
 
+wilsonCI <- function(p.hat, n, alpha=0.05) {
+  z <- qnorm(1 - alpha/2)
+  lower <- (p.hat + z^2/(2*n))/(1 + z^2/n) - 
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  upper <- (p.hat + z^2/(2*n))/(1 + z^2/n)+
+    z*sqrt(p.hat*(1 - p.hat)/n + z^2/(4*n^2))/(1 + z^2/n)
+  return(c("lower"=lower, "upper"=upper))
+}
 ```
 
+Fit models and get predictions
+
+```{r}
+suppressWarnings(pdist_weibull <- proposed_approach(df.obs, "weibull"))
+suppressWarnings(pdist_gamma <- proposed_approach(df.obs, "gamma"))
+suppressWarnings(pdist_ge <- generalized_approach(df.obs))
+
+predict_surv_PA <- function(pdist, sizes, D) {
+  p.A <- pdist(D, "A")
+  p.B <- pdist(D, "B")
+  CI.A <- wilsonCI(1-p.A, sizes[["A"]])
+  CI.B <- wilsonCI(1-p.B, sizes[["B"]])
+  AIC <- attr(pdist, "AIC")
+  return(c(1-p.A, CI.A, 1-p.B, CI.B, AIC))
+}
+
+surv.pa <- matrix(
+  sapply(
+    list(pdist_weibull, pdist_gamma, pdist_ge),
+    predict_surv_PA,
+    D = 1826,
+    sizes = N.tr
+  ),
+  nrow = 3,
+  ncol = 7,
+  byrow = TRUE,
+  dimnames = list(
+    c("weibull", "gamma", "generalised"),
+    c("A", "A.lower", "A.upper", "B", "B.lower", "B.upper", "AIC")
+  )
+)
+```
+
+## Flexible parametric model
+
+```{r}
+fit_flexible <- function(Surv.obj, df, tr.cols = cols) {
+  tr.names <- names(tr.cols)
+  
+  # 1. Splines
+  fit.fspl0 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 0)
+  fit.fspl01 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 0, anc = list(gamma1 = ~ treatment))
+  fit.fspl1 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 1)
+  fit.fspl11 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 1, anc = list(gamma1 = ~ treatment))
+  fit.fspl12 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 1, anc = list(gamma1 = ~ treatment, gamma2 = ~ treatment))
+  fit.fspl2 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 2)
+  fit.fspl21 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 2, anc = list(gamma1 = ~ treatment))
+  fit.fspl22 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 2, anc = list(gamma1 = ~ treatment, gamma2 = ~ treatment))
+  fit.fspl23 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 2, anc = list(gamma1 = ~ treatment, gamma2 = ~ treatment, gamma3 = ~ treatment))
+  fit.fspl3 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 3)
+  fit.fspl31 <- flexsurvspline(eval(Surv.obj) ~ treatment, data = df, scale = "hazard", k = 3, anc = list(gamma1 = ~ treatment))
+  
+  # 2. Parametric
+  fit.fpar <- flexsurvreg(eval(Surv.obj) ~ treatment, data = df, dist = "weibull")
+  fit.fpar1 <- flexsurvreg(eval(Surv.obj) ~ treatment, data = df, dist = "weibull", anc = list(shape = ~ treatment))
+  
+  return(list(fit.fspl0, fit.fspl01, fit.fspl1, fit.fspl11, fit.fspl12, fit.fspl2, fit.fspl21, fit.fspl22, fit.fspl23, fit.fspl3, fit.fspl31, fit.fpar, fit.fpar1))
+}
+
+suppressWarnings(models.fpm <- fit_flexible(
+  expression(Surv(lower, upper, type = "interval2")), 
+  df.obs))
+
+predict_surv_flexible <- function(D, models) {
+  tbl <- lapply(
+    models, 
+    predict, 
+    newdata = data.frame(treatment = c("A", "B")), 
+    type = "survival",
+    conf.int = TRUE,
+    times = D
+  )
+  
+  tbl <- cbind(t(sapply(tbl, function(x) c(x[1,2:4], x[2,2:4]))), 
+               sapply(models, function(m) m$AIC))
+  rownames(tbl) <- c("FPM.SPL0", "FPM.SPL01", "FPM.SPL1", "FPM.SPL11", "FPM.SPL12", "FPM.SPL2", "FPM.SPL21", "FPM.SPL22", "FPM.SPL23", "FPM.SPL3", "FPM.SPL31", "FPM.PAR", "FPM.PAR1")
+  colnames(tbl) <- c("A", "A.lower", "A.upper", "B", "B.lower", "B.upper", "AIC")
+  return(tbl)
+}
+
+surv.fpm <- predict_surv_flexible(1826, models.fpm)
+```
 
 # Comparisons
+
+```{r}
+true1826 <- c("A" = 1 - pweibull(1826, parameters[["A"]][[1]], parameters[["A"]][[2]]), 
+              "B" = 1 - pweibull(1826, parameters[["B"]][[1]], parameters[["B"]][[2]]))
+tbl <- as.matrix(rbind(c(true1826[[1]], NA, NA, true1826[[2]], NA, NA, NA), surv.day, surv.upp, surv.mid, surv.int, surv.pa, surv.fpm))
+tbl
+```
 
 
 
