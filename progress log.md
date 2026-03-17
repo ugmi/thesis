@@ -181,3 +181,37 @@ Listed possible optimization functions to use in R.
 Optimized model fitting for different imputation scenarios.  
 Wrote a function for predicting survival for different survival models.  
 Added fitting and prediction for models for interval-censored data.  
+
+# 09/03/2026
+Added fitting and prediction for the proposed approach.  
+Collected all predictions in a table for comparison.  
+
+# 10/03/2026
+Added data generation checks and descriptions of the data.  
+
+# 11/03/2026
+Added flexible parametric models.  
+Added AIC column in the table for model comparison.  
+
+# 12/03/2026
+
+# 13/03/2026
+
+# 14/03/2026
+
+# 15/03/2026
+Made a plot of bias for different sample sizes.  
+
+# 16/03/2026
+Tidied the plots for bias.  
+Created plots for AIC.  
+Added standard errors (where available from existing functions).  
+Optimized the simulation function.  
+
+# 17/03/2026
+Added standard errors using delta method.  
+Added plot of the standard errors.  
+Created the simulation file.  
+Created a helper function file.  
+
+
