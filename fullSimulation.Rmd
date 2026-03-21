@@ -11,6 +11,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 source("./functions.R")
+# source file loads
+# library(survival)
+# library(icenReg)
+# library(flexsurv)
+# library(msm)
+
 set.seed(311)
 ```
 
@@ -22,7 +28,8 @@ We have assumed the data comes...
 # Parameters describing the setting
 N <- 5000
 N.prop <- 1/2
-sizes <- c("1" = N*N.prop, "2" = N - N*N.prop)
+N1 <- N*N.prop
+sizes <- c("1" = N1, "2" = N - N1)
 treat.prop <- list("1" = list("A" = 0.5, "B" = 0.5), 
                    "2" = list("A" = 0.5, "B" = 0.5))
 lost.prop <- c("1" = 0.01, "2" = 0.01)
@@ -38,19 +45,6 @@ pars.ph <- list("A" = c(0.5, 2000), "B" = c(0.5, 2600))
 
 # Create the data set
 df.ph <- generate_df(sizes, treat.prop, pars.ph, duration, followup, lost.prop)
-df.ph["obs"] <- ifelse(
-  df.ph$register == 1,
-  df.ph$exit,
-  ifelse(df.ph$status == "Dead", df.ph$upper, df.ph$exit)
-)
-# Midpoint imputation (needed for later)
-df.ph["mid"] <- ifelse(
-  df.ph$register == "2" & df.ph$status == "Dead", 
-  df.ph$obs - 15, 
-  df.ph$obs
-)
-
-# Inspect the data set
 df.ph[c((N1/2-20):(N1/2-19), (N1-19):(N1-20), (N1+19):(N1+20), (N-20):(N-19)),]
 ```
 
@@ -60,19 +54,6 @@ pars.nph <- list("A" = c(0.9, 2000), "B" = c(0.5, 2500))
 
 # Create the data set
 df.nph <- generate_df(sizes, treat.prop, pars.nph, duration, followup, lost.prop)
-df.nph["obs"] <- ifelse(
-  df.nph$register == 1,
-  df.nph$exit,
-  ifelse(df.nph$status == "Dead", df.nph$upper, df.nph$exit)
-)
-# Midpoint imputation (needed for later)
-df.nph["mid"] <- ifelse(
-  df.nph$register == "2" & df.nph$status == "Dead", 
-  df.nph$obs - 15, 
-  df.nph$obs
-)
-
-# Inspect the data set
 df.nph[c((N1/2-20):(N1/2-19), (N1-19):(N1-20), (N1+19):(N1+20), (N-20):(N-19)),]
 ```
 
@@ -83,11 +64,13 @@ tr.cols <- c("A" = "#009292", "B" = "#B66DFF")
 tr.names <- c("A", "B")
 
 # Fit proportional hazard data
-KM.ph <- survfit(Surv(exit, status == "Dead") ~ treatment, data = df.ph, conf.type = "log-log")
+KM.ph <- survfit(Surv(exit, status == "Dead") ~ treatment, data = df.ph, 
+                 conf.type = "log-log")
 COX.ph <- coxph(Surv(exit, status == "Dead") ~ treatment, data = df.ph)
 
 # Fit non-proportional hazard data
-KM.nph <- survfit(Surv(exit, status == "Dead") ~ treatment, data = df.nph, conf.type = "log-log")
+KM.nph <- survfit(Surv(exit, status == "Dead") ~ treatment, data = df.nph, 
+                  conf.type = "log-log")
 COX.nph <- coxph(Surv(exit, status == "Dead") ~ treatment, data = df.nph)
 ```
 
@@ -110,10 +93,12 @@ Plot the log-log plots.
 
 ```{r}
 par(mfcol = c(1, 2))
-plot(KM.ph, fun = "cloglog", col = tr.cols, xlab = "Days", ylab = "log(-log(Survival))", main = "PH")
+plot(KM.ph, fun = "cloglog", col = tr.cols, 
+     xlab = "Days", ylab = "log(-log(Survival))", main = "PH")
 legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
 
-plot(KM.nph, fun = "cloglog", col = tr.cols, xlab = "Days", ylab = "log(-log(Survival))", main = "NPH")
+plot(KM.nph, fun = "cloglog", col = tr.cols, 
+     xlab = "Days", ylab = "log(-log(Survival))", main = "NPH")
 legend("bottomright", lty = c(1, 1), bty = "n", col = tr.cols, legend = tr.names)
 ```
 
@@ -131,31 +116,38 @@ plot(res.nph, resid = TRUE, main = "Schoenfeld residuals (NPH)", cex = 0.2)
 
 ## Model fitting
 
-
 ```{r}
 model.names <- c("KM.DAILY", "COX.DAILY", "W.DAILY", "W.STR.DAILY",
                   "KM.IGN", "COX.IGN", "W.IGN", "W.STR.IGN",
                   "KM.IMP", "COX.IMP", "W.IMP", "W.STR.IMP",
                   "NPMLE", "SEMI.PH", "SEMI.PO", "W.IC", "W.STR.IC",
-                  "SPL30", "SPL21", "W.FPM", "W.FPM1",
+                  "SPL31", "SPL30", "SPL21", "W.FPM", "W.FPM1",
                   "PA.W", "PA.GAMMA", "PA.GEN")
-properties <- c("A", "A.lower", "A.upper", "A.SE", 
-                "B", "B.lower", "B.upper", "B.SE", 
-                "AIC")
+estimates <- c("A", "A.lower", "A.upper", "A.SE", 
+               "B", "B.lower", "B.upper", "B.SE", 
+               "AIC")
+n.mods <- length(model.names)
 M <- c(500, 1000, 2000, 5000, 10000)
 n.M <- length(M)
-tables.ph <- array(NA, dim = c(n.M, 24, 9), dimnames = list(M, model.names, properties))
-tables.nph <- array(NA, dim = c(n.M, 24, 9), dimnames = list(M, model.names, properties))
+tables.ph <- array(NA, dim = c(n.M, 9, n.mods), 
+                   dimnames = list(M, estimates, model.names))
+tables.nph <- array(NA, dim = c(n.M, 9, n.mods), 
+                    dimnames = list(M, estimates, model.names))
+data.ph <- vector("list", n.M)
+data.nph <- vector("list", n.M)
 
 for(i in 1:n.M) {
   sizes <- c("1" = M[i]*N.prop, "2" = M[i] - M[i]*N.prop)
+  
   # Proportional hazards
-  df.pars.ph <- list(sizes, treat.prop, pars.ph, duration, followup, lost.prop)
-  tables.ph[i,,] <- get_table(1826, df.pars.ph)
+  data.ph[[i]] <- generate_df(
+    sizes, treat.prop, pars.ph, duration, followup, lost.prop)
+  tables.ph[i,,] <- get_table(1826, data.ph[[i]])
   
   # Non-proportional hazards
-  df.pars.nph <- list(sizes, treat.prop, pars.nph, duration, followup, lost.prop)
-  tables.nph[i,,] <- get_table(1826, df.pars.nph)
+  data.nph[[i]] <- generate_df(
+    sizes, treat.prop, pars.nph, duration, followup, lost.prop)
+  tables.nph[i,,] <- get_table(1826, data.nph[[i]])
 }
 ```
 
@@ -166,15 +158,15 @@ ph1826 <- c("A" = 1 - pweibull(1826, pars.ph[["A"]][[1]], pars.ph[["A"]][[2]]),
 nph1826 <- c("A" = 1 - pweibull(1826, pars.nph[["A"]][[1]], pars.nph[["A"]][[2]]), 
              "B" = 1 - pweibull(1826, pars.nph[["B"]][[1]], pars.nph[["B"]][[2]]))
 
-biasA.ph <- tables.ph[,,1] - ph1826[["A"]]
-biasB.ph <- tables.ph[,,5] - ph1826[["B"]]
-seA.ph <- tables.ph[,,4]
-seB.ph <- tables.ph[,,8]
+biasA.ph <- tables.ph[,1,] - ph1826[["A"]]
+biasB.ph <- tables.ph[,5,] - ph1826[["B"]]
+seA.ph <- tables.ph[,4,]
+seB.ph <- tables.ph[,8,]
 
-biasA.nph <- tables.nph[,,1] - nph1826[["A"]]
-biasB.nph <- tables.nph[,,5] - nph1826[["B"]]
-seA.nph <- tables.nph[,,4]
-seB.nph <- tables.nph[,,8]
+biasA.nph <- tables.nph[,1,] - nph1826[["A"]]
+biasB.nph <- tables.nph[,5,] - nph1826[["B"]]
+seA.nph <- tables.nph[,4,]
+seB.nph <- tables.nph[,8,]
 
 col.M <- c("red", "darkorange", "forestgreen", "blue", "purple")
 ```
@@ -191,34 +183,48 @@ plot_bias(biasB.nph, col.M, " (B, NPH)")
 Plot AICs.
 
 ```{r}
-AICs.ph <- apply(tables.ph[,,9], 1, function(v) v-min(v, na.rm = TRUE))
+AICs.ph <- apply(tables.ph[,9,], 1, function(v) v-min(v, na.rm = TRUE))
 plot_AIC(AICs.ph, c(2:4, 6:8, 10:12), col.M, "difference from minimum")
-plot_AIC(AICs.ph, 16:24, col.M, "difference from minimum")
-AICs.nph <- apply(tables.nph[,,9], 1, function(v) v-min(v, na.rm = TRUE))
+plot_AIC(AICs.ph, 16:25, col.M, "difference from minimum")
+AICs.nph <- apply(tables.nph[,9,], 1, function(v) v-min(v, na.rm = TRUE))
 plot_AIC(AICs.nph, c(2:4, 6:8, 10:12), col.M, "difference from minimum")
-plot_AIC(AICs.nph, 16:24, col.M, "difference from minimum")
+plot_AIC(AICs.nph, 16:25, col.M, "difference from minimum")
 ```
+
+
+## Bootstrap
+
+Find bootstrap bias estimates and standard errors for each M?
+
+```{r}
+
+```
+
+
+## Repeated data generation and model fitting
 
 Now try to estimate average bias, average AIC and SE.
 
 ```{r}
 n.iter <- 20
-sizes <- c("1" = N*N.prop, "2" = N - N*N.prop)
+sizes <- c("1" = N1, "2" = N - N1)
 df.pars.ph <- list(sizes, treat.prop, pars.ph, duration, followup, lost.prop)
 df.pars.nph <- list(sizes, treat.prop, pars.nph, duration, followup, lost.prop)
 
-tables.ph.iter <- array(NA, dim = c(n.iter, 24, 9), dimnames = list(1:n.iter, model.names, properties))
-tables.nph.iter <- array(NA, dim = c(n.iter, 24, 9), dimnames = list(1:n.iter, model.names, properties))
+tables.ph.iter <- array(NA, dim = c(n.iter, 9, n.mods), 
+                        dimnames = list(1:n.iter, estimates, model.names))
+tables.nph.iter <- array(NA, dim = c(n.iter, 9, n.mods), 
+                         dimnames = list(1:n.iter, estimates, model.names))
 
 # Add a progress bar to help estimate how long the for loop would take
 pb <- txtProgressBar(min = 0, max = n.iter, style = 3, width = 50, char = "=")
 for(i in 1:n.iter) {
-  
   # Proportional hazards
   #tables.ph.iter[i,,] <- get_table(1826, df.pars.ph)
   
   # Non-proportional hazards
-  tables.nph.iter[i,,] <- get_table(1826, df.pars.nph)
+  
+  tables.nph.iter[i,,] <- get_table(1826, do.call(generate_df, df.pars.nph))
   setTxtProgressBar(pb, i)
 }
 ```
@@ -228,18 +234,22 @@ Now, we find the average values.
 
 ```{r}
 summary.names <- c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")
-avgAIC <- apply(tables.nph.iter[,,9], 2, function(v) as.numeric(summary(v, na.rm = TRUE)))
-avgBiasA <- apply(tables.nph.iter[,,1]-nph1826[["A"]], 2, function(v) round(as.numeric(summary(v, na.rm = TRUE)), 5))
-avgBiasB <- apply(tables.nph.iter[,,5]-nph1826[["B"]], 2, function(v) round(as.numeric(summary(v, na.rm = TRUE)), 5))
-sdA <- apply(tables.nph.iter[,,1], 2, sd, na.rm = TRUE)
-sdB <- apply(tables.nph.iter[,,5], 2, sd, na.rm = TRUE)
+avgAIC <- apply(tables.nph.iter[,9,], 2, function(v) 
+  as.numeric(summary(v, na.rm = TRUE)))
+avgBiasA <- apply(tables.nph.iter[,1,]-nph1826[["A"]], 2, function(v) 
+  round(as.numeric(summary(v, na.rm = TRUE)), 5))
+avgBiasB <- apply(tables.nph.iter[,5,]-nph1826[["B"]], 2, function(v) 
+  round(as.numeric(summary(v, na.rm = TRUE)), 5))
+sdA <- apply(tables.nph.iter[,1,], 2, sd, na.rm = TRUE)
+sdB <- apply(tables.nph.iter[,5,], 2, sd, na.rm = TRUE)
 cbind(sdA, sdB)
 ```
 
 Look at average AIC, sorted by mean.
 
 ```{r}
-tavgAIC <- t(as.data.frame(avgAIC[c(2:4, 6:8, 10:12, 16:24)], row.names = summary.names))
+tavgAIC <- t(as.data.frame(avgAIC[c(2:4, 6:8, 10:12, 16:25)], 
+                           row.names = summary.names))
 tavgAIC[order(tavgAIC[,4]),]
 ```
 
