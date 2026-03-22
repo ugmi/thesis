@@ -318,9 +318,9 @@ par1.bias <- average_bias(est1[["pars"]], pars1[["A"]])
 prob1.bias <- average_bias(est1[["prob"]], P1)
 PA1.bias <- average_bias(est1[["PA"]], P1)
 
-plot_surv_bias(prob1.bias[,,1], m.cols)
-plot_surv_bias(prob1.bias[,,2], m.cols)
-plot_surv_bias(prob1.bias[,,3], m.cols)
+plot_bias(prob1.bias[,,1], m.cols)
+plot_bias(prob1.bias[,,2], m.cols)
+plot_bias(prob1.bias[,,3], m.cols)
 
 # second simulation
 df2.pars <- list(sizes, treat.prop, pars2, duration, followup2, lost.prop, widths)
@@ -330,6 +330,6 @@ par2.bias <- average_bias(est2[["pars"]], pars2[["A"]])
 prob2.bias <- average_bias(est2[["prob"]], P2)
 PA2.bias <- average_bias(est2[["PA"]], P2)
 
-plot_surv_bias(prob2.bias[,,1], m.cols)
-plot_surv_bias(prob2.bias[,,2], m.cols)
-plot_surv_bias(prob2.bias[,,3], m.cols)
+plot_bias(prob2.bias[,,1], m.cols)
+plot_bias(prob2.bias[,,2], m.cols)
+plot_bias(prob2.bias[,,3], m.cols)
