@@ -265,7 +265,7 @@ average_bias <- function(thetas, true.vals) {
   return(avg.bias)
 }
 
-## PLOTTTING -------------------------------------------------------------------
+## PLOTTING --------------------------------------------------------------------
 
 plot_bias <- function(bias, cols) {
   labs <- dimnames(bias)
