@@ -1,0 +1,166 @@
+---
+title: "Collected Simulations"
+author: "Ugne Milasiunaite"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source("./simulation.R")
+# source file loads
+# library(survival)
+# library(icenReg)
+# library(flexsurv)
+
+set.seed(1984)
+
+# Common parameters for the simulations
+n.iter <- 1000
+widths <- c("1" = 1, "2" = 30, "3" = 365)  # interval widths
+duration <- 365  # enrollment duration
+N <- 2000
+
+# Setting-specific parameters
+followup1 <- 365
+days1 <- c(30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 333, 365)
+followup5 <- 1826
+days5 <- c(365, 730, 1095, 1461, 1826)
+
+# Parameters for plotting
+m.cols <- c("darkorange", "red", "brown", "forestgreen", "royalblue", "cyan3")
+```
+
+## Weibull
+
+# Short-term survival
+
+```{r}
+pars <- c("shape" = 0.7, "scale" = 200)
+P <- 1 - pweibull(days1, pars[["shape"]], pars[["scale"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "weibull",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup1,
+  "width" = widths
+)
+
+df <- do.call(generate_df, df.pars)
+est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols)
+plot_bias(prob.bias[,,2], m.cols)
+plot_bias(prob.bias[,,3], m.cols)
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+# Long-term survival
+
+```{r}
+pars <- c("shape" = 0.6, "scale" = 2000)
+P <- 1 - pweibull(days5, pars[["shape"]], pars[["scale"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "weibull",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup5,
+  "width" = widths
+)
+
+df <- do.call(generate_df, df.pars)
+est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols)
+plot_bias(prob.bias[,,2], m.cols)
+plot_bias(prob.bias[,,3], m.cols)
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+## Gamma
+
+# Short-term survival
+
+```{r}
+pars <- c("shape" = 5, "rate" = 0.02)
+P <- 1 - pgamma(days1, pars[["shape"]], pars[["rate"]])
+plot(days1, P, ylim = c(0,1))
+```
+
+
+```{r}
+df.pars <- list(
+  "n" = N,
+  "dist" = "gamma",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup1,
+  "width" = widths
+)
+
+df <- do.call(generate_df, df.pars)
+est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, "width=1")
+plot_bias(prob.bias[,,2], m.cols, "width=30")
+plot_bias(prob.bias[,,3], m.cols, "width=365")
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+# Long-term survival
+
+```{r}
+pars <- c("shape" = 18, "rate" = 0.01)
+P <- 1 - pgamma(days5, pars[["shape"]], pars[["rate"]])
+plot(days5, P, ylim = c(0,1))
+```
+
+```{r}
+df.pars <- list(
+  "n" = N,
+  "dist" = "gamma",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup5,
+  "width" = widths
+)
+
+df <- do.call(generate_df, df.pars)
+est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, 1)
+plot_bias(prob.bias[,,2], m.cols, 30)
+plot_bias(prob.bias[,,3], m.cols, 365)
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
