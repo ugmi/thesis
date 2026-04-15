@@ -2,7 +2,9 @@
 title: "Collected Simulations"
 author: "Ugne Milasiunaite"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -29,6 +31,7 @@ followup1 <- 365
 days1 <- c(30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 333, 365)
 followup5 <- 1826
 days5 <- c(365, 730, 1095, 1461, 1826)
+times <- 1:2000
 
 # Parameters for plotting
 m.cols <- c("darkorange", "red", "brown", "forestgreen", "royalblue", "cyan3")
@@ -36,9 +39,27 @@ m.cols <- c("darkorange", "red", "brown", "forestgreen", "royalblue", "cyan3")
 
 ## Weibull
 
+```{r Weibull}
+surv1 <- 1 - pweibull(times, 0.7, 200)
+surv5 <- 1 - pweibull(times, 0.6, 2000)
+plot(times, surv1, xlim = c(0, followup5), pch = 20, cex = 0.5, xaxt = "n",
+     xlab = "", ylab = "Survival probability", main = "Weibull survival curves")
+axis(1, at = c(0, 365, 1826), labels = c("0", "1 year",  "5 years"))
+points(times, surv5, pch = 20, cex = 0.5)
+#lines(c(-1000, 2000), c(0.5, 0.5), lty = 2, col = "grey")
+points(c(365, 1826, 365, 1826), c(surv1[c(365, 1826)], surv5[c(365, 1826)]), 
+       col = "firebrick", pch = 9)
+text(c(365, 1826, 365, 1826), c(surv1[c(365, 1826)], surv5[c(365, 1826)]), 
+     labels = round(c(surv1[c(365, 1826)], surv5[c(365, 1826)]), 2), 
+     pos = 3)
+#lines(c(365, 365), c(-0.5, 1.5), lty = 2, col = "grey")
+#lines(c(1826, 1826), c(-0.5, 1.5), lty = 2, col = "grey")
+legend("topright", bty = "n", pch = c(20, 20), legend = c("shape=0.6, scale=2000", "shape=0.7, scale=200"))
+```
+
 # Short-term survival
 
-```{r}
+```{r Weibull-short-term}
 pars <- c("shape" = 0.7, "scale" = 200)
 P <- 1 - pweibull(days1, pars[["shape"]], pars[["scale"]])
 
@@ -46,20 +67,19 @@ df.pars <- list(
   "n" = N,
   "dist" = "weibull",
   "pars" = pars,
-  "duration" = duration,
-  "followup" = followup1,
+  "duration" = 0,
+  "followup" = Inf,
   "width" = widths
 )
 
-df <- do.call(generate_df, df.pars)
 est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
 
 par.bias <- average_bias(est[["pars"]], pars)
 prob.bias <- average_bias(est[["prob"]], P)
 
-plot_bias(prob.bias[,,1], m.cols)
-plot_bias(prob.bias[,,2], m.cols)
-plot_bias(prob.bias[,,3], m.cols)
+plot_bias(prob.bias[,,1], m.cols, "Bias for est. S(t), \ninterval width = 1 day")
+plot_bias(prob.bias[,,2], m.cols, "Bias for est. S(t), \ninterval width = 30 days")
+plot_bias(prob.bias[,,3], m.cols, "Bias for est. S(t), \ninterval width = 365 days")
 
 par.bias[,,1]
 par.bias[,,2]
@@ -68,7 +88,7 @@ par.bias[,,3]
 
 # Long-term survival
 
-```{r}
+```{r Weibull-long-term}
 pars <- c("shape" = 0.6, "scale" = 2000)
 P <- 1 - pweibull(days5, pars[["shape"]], pars[["scale"]])
 
@@ -76,20 +96,19 @@ df.pars <- list(
   "n" = N,
   "dist" = "weibull",
   "pars" = pars,
-  "duration" = duration,
-  "followup" = followup5,
+  "duration" = 0,
+  "followup" = Inf,
   "width" = widths
 )
 
-df <- do.call(generate_df, df.pars)
 est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
 
 par.bias <- average_bias(est[["pars"]], pars)
 prob.bias <- average_bias(est[["prob"]], P)
 
-plot_bias(prob.bias[,,1], m.cols)
-plot_bias(prob.bias[,,2], m.cols)
-plot_bias(prob.bias[,,3], m.cols)
+plot_bias(prob.bias[,,1], m.cols, "Bias for est. S(t), \ninterval width = 1 day")
+plot_bias(prob.bias[,,2], m.cols, "Bias for est. S(t), \ninterval width = 30 days")
+plot_bias(prob.bias[,,3], m.cols, "Bias for est. S(t), \ninterval width = 365 days")
 
 par.bias[,,1]
 par.bias[,,2]
@@ -98,16 +117,22 @@ par.bias[,,3]
 
 ## Gamma
 
-# Short-term survival
-
-```{r}
-pars <- c("shape" = 5, "rate" = 0.02)
-P <- 1 - pgamma(days1, pars[["shape"]], pars[["rate"]])
-plot(days1, P, ylim = c(0,1))
+```{r Gamma}
+surv1 <- 1 - pgamma(times, 5, 0.02)
+surv5 <- 1 - pgamma(times, 2, 0.001)
+plot(times, surv1, xlim = c(0, followup5), pch = 20, cex = 0.5,
+     xlab = "Days", ylab = "Survival", main = "Gamma survival curves")
+points(times, surv5, pch = 20, cex = 0.5)
+#lines(c(-1000, 2000), c(0.5, 0.5), lty = 2, col = "grey")
+lines(c(365, 365), c(-0.5, 1.5), lty = 2, col = "grey")
+legend("topright", bty = "n", pch = c(20, 20), legend = c("shape=2, rate=0.001", "shape=5, rate=0.02"))
 ```
 
+# Short-term survival
 
-```{r}
+```{r Gamma-short-term, eval=FALSE}
+pars <- c("shape" = 5, "rate" = 0.02)
+P <- 1 - pgamma(days1, pars[["shape"]], pars[["rate"]])
 df.pars <- list(
   "n" = N,
   "dist" = "gamma",
@@ -117,15 +142,14 @@ df.pars <- list(
   "width" = widths
 )
 
-df <- do.call(generate_df, df.pars)
 est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
 
 par.bias <- average_bias(est[["pars"]], pars)
 prob.bias <- average_bias(est[["prob"]], P)
 
-plot_bias(prob.bias[,,1], m.cols, "width=1")
-plot_bias(prob.bias[,,2], m.cols, "width=30")
-plot_bias(prob.bias[,,3], m.cols, "width=365")
+plot_bias(prob.bias[,,1], m.cols, "Gamma w=1")
+plot_bias(prob.bias[,,2], m.cols, "Gamma w=30")
+plot_bias(prob.bias[,,3], m.cols, "Gamma w=365")
 
 par.bias[,,1]
 par.bias[,,2]
@@ -134,13 +158,9 @@ par.bias[,,3]
 
 # Long-term survival
 
-```{r}
-pars <- c("shape" = 18, "rate" = 0.01)
+```{r Gamma-long-term, eval=FALSE}
+pars <- c("shape" = 2, "rate" = 0.001)
 P <- 1 - pgamma(days5, pars[["shape"]], pars[["rate"]])
-plot(days5, P, ylim = c(0,1))
-```
-
-```{r}
 df.pars <- list(
   "n" = N,
   "dist" = "gamma",
@@ -150,17 +170,164 @@ df.pars <- list(
   "width" = widths
 )
 
-df <- do.call(generate_df, df.pars)
 est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
 
 par.bias <- average_bias(est[["pars"]], pars)
 prob.bias <- average_bias(est[["prob"]], P)
 
-plot_bias(prob.bias[,,1], m.cols, 1)
-plot_bias(prob.bias[,,2], m.cols, 30)
-plot_bias(prob.bias[,,3], m.cols, 365)
+plot_bias(prob.bias[,,1], m.cols, "Gamma w=1")
+plot_bias(prob.bias[,,2], m.cols, "Gamma w=30")
+plot_bias(prob.bias[,,3], m.cols, "Gamma w=365")
 
 par.bias[,,1]
 par.bias[,,2]
 par.bias[,,3]
 ```
+
+# Lognormal distribution
+
+```{r Lognormal}
+surv1 <- 1 - plnorm(times, 4.8, 1.2)
+surv5 <- 1 - plnorm(times, 7, 1)
+plot(times, surv1, xlim = c(0, followup5), pch = 20, cex = 0.5,
+     xlab = "Days", ylab = "Survival", main = "Lognormal survival curves")
+points(times, surv5, pch = 20, cex = 0.5)
+#lines(c(-1000, 2000), c(0.5, 0.5), lty = 2, col = "grey")
+lines(c(365, 365), c(-0.5, 1.5), lty = 2, col = "grey")
+legend("topright", bty = "n", pch = c(20, 20), legend = c("meanlog=7, sdlog=1", "meanlog=4.8, sdlog=1.2"))
+```
+
+# Short-term survival
+
+```{r Lognormal-short-term, eval=FALSE}
+pars <- c("meanlog" = 4.8, "sdlog" = 1.2)
+P <- 1 - plnorm(days1, pars[["meanlog"]], pars[["sdlog"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "lognormal",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup1,
+  "width" = widths
+)
+
+est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, "Lognormal w=1")
+plot_bias(prob.bias[,,2], m.cols, "Lognormal w=30")
+plot_bias(prob.bias[,,3], m.cols, "Lognormal w=365")
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+# Long-term survival
+
+```{r Lognormal-long-term, eval=FALSE}
+pars <- c("meanlog" = 7, "sdlog" = 1)
+P <-  1 - plnorm(days5, pars[["meanlog"]], pars[["sdlog"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "lognormal",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup5,
+  "width" = widths
+)
+
+est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, "Lognormal w=1")
+plot_bias(prob.bias[,,2], m.cols, "Lognormal w=30")
+plot_bias(prob.bias[,,3], m.cols, "Lognormal w=365")
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+# Gompertz
+
+```{r Gompertz}
+surv1 <- 1 - pgompertz(times, 0.001, 0.003)
+surv5 <- 1 - pgompertz(times, 0.002, 0.00005)
+plot(times, surv1, xlim = c(0, followup5), pch = 20, cex = 0.5, ylim = c(0,1),
+     xlab = "Days", ylab = "Survival", main = "Gompertz survival curves")
+points(times, surv5, pch = 20, cex = 0.5)
+#lines(c(-1000, 2000), c(0.5, 0.5), lty = 2, col = "grey")
+lines(c(365, 365), c(-0.5, 1.5), lty = 2, col = "grey")
+legend("topright", bty = "n", pch = c(20, 20), legend = c("shape=0.002, rate=0.00005", "shape=0.001, rate=0.003"))
+```
+
+# Short-term survival
+
+```{r Gompertz-short-term, eval=FALSE}
+pars <- c("shape" = 0.001, "rate" = 0.003)
+P <- 1 - pgompertz(days1, pars[["shape"]], pars[["rate"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "gompertz",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup1,
+  "width" = widths
+)
+
+est <- repeat_estimation(n.iter, days1, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, "Gompertz w=1")
+plot_bias(prob.bias[,,2], m.cols, "Gompertz w=30")
+plot_bias(prob.bias[,,3], m.cols, "Gompertz w=365")
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+# Long-term survival
+
+```{r Gompertz-long-term, eval=FALSE}
+pars <- c("shape" = 0.002, "rate" = 0.00005)
+P <-  1 - pgompertz(days5, pars[["shape"]], pars[["rate"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = "gompertz",
+  "pars" = pars,
+  "duration" = duration,
+  "followup" = followup5,
+  "width" = widths
+)
+
+est <- repeat_estimation(n.iter, days5, df.pars, names(pars))
+
+par.bias <- average_bias(est[["pars"]], pars)
+prob.bias <- average_bias(est[["prob"]], P)
+
+plot_bias(prob.bias[,,1], m.cols, "Gompertz w=1")
+plot_bias(prob.bias[,,2], m.cols, "Gompertz w=30")
+plot_bias(prob.bias[,,3], m.cols, "Gompertz w=365")
+
+par.bias[,,1]
+par.bias[,,2]
+par.bias[,,3]
+```
+
+
+
+
+
+
