@@ -1,0 +1,146 @@
+---
+title: "Investigations"
+author: "Ugne Milasiunaite"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source("./simulation.R")
+# source file loads
+# library(survival)
+# library(icenReg)
+# library(flexsurv)
+
+set.seed(1984)
+
+# Common parameters for the simulations
+widths <- c("1" = 1, "2" = 30, "3" = 365)  # interval widths
+N <- 2000
+dist <- "weibull"
+
+# Setting-specific parameters
+days <- c(1:30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 333, 365)
+times <- 1:2000
+
+# Parameters for plotting
+m.cols <- c("darkorange", "red", "brown", "forestgreen", "royalblue", "cyan3")
+```
+
+```{r}
+pars <- c("shape" = 0.7, "scale" = 200)
+P <- 1 - pweibull(days, pars[["shape"]], pars[["scale"]])
+
+df.pars <- list(
+  "n" = N,
+  "dist" = dist,
+  "pars" = pars,
+  "duration" = 0,
+  "followup" = Inf,
+  "width" = widths
+)
+
+df <- do.call(generate_df, df.pars)
+
+# Fit non-parametric models
+KM.mid1 <- survfit(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[1]])
+KM.obs1 <- survfit(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[1]])
+NPMLE1 <- ic_np(df[[2]][[1]][, c("lower", "upper")])
+scurv <- getSCurves(NPMLE1)
+
+KM.mid30 <- survfit(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[2]])
+KM.obs30 <- survfit(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[2]])
+NPMLE30 <- ic_np(df[[2]][[2]][, c("lower", "upper")])
+scurv <- getSCurves(NPMLE30)
+
+KM.mid365 <- survfit(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[3]])
+KM.obs365 <- survfit(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[3]])
+NPMLE365 <- ic_np(df[[2]][[3]][, c("lower", "upper")])
+scurv <- getSCurves(NPMLE365)
+  
+# Fit parametric models
+mid1 <- flexsurvreg(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[1]], dist = dist)
+ign1 <- flexsurvreg(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[1]], dist = dist)
+ic1 <- flexsurvreg(Surv(lower, upper, type = "interval2") ~ 1, data = df[[2]][[1]], dist = dist)
+
+mid30 <- flexsurvreg(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[2]], dist = dist)
+ign30 <- flexsurvreg(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[2]], dist = dist)
+ic30 <- flexsurvreg(Surv(lower, upper, type = "interval2") ~ 1, data = df[[2]][[2]], dist = dist)
+
+mid365 <- flexsurvreg(Surv(mid, status == "Dead") ~ 1, data = df[[2]][[3]], dist = dist)
+ign365 <- flexsurvreg(Surv(obs, status == "Dead") ~ 1, data = df[[2]][[3]], dist = dist)
+ic365 <- flexsurvreg(Surv(lower, upper, type = "interval2") ~ 1, data = df[[2]][[3]], dist = dist)
+```
+
+```{r}
+plot(KM.mid1, col = m.cols[1], xlim = c(0, 7), ylim = c(0.9, 1))
+lines(KM.obs1, col = m.cols[2])
+```
+
+
+```{r}
+t <- sort(df[[1]])
+surv <- 1 - pweibull(t, pars[["shape"]], pars[["scale"]])
+
+par(mfrow = c(2, 1))
+
+# plot 1
+par(mar = c(0.1, 2.1, 4.1, 2.1))
+plot(KM.mid, col = m.cols[1], xlim = c(0, 7), ylim = c(0.9, 1),
+     xaxt = "n", yaxt = "n")
+lines(t, surv, pch = 20, cex = 0.5)
+points(1:7, KM.mid$surv[1:7], col = "#999999", pch = 4)
+
+# plot 2
+par(mar = c(5.1, 2.1, 0.1, 2.1))
+plot(KM.obs, col = m.cols[2], xlim = c(0, 7), ylim = c(0.9, 1),
+     xlab = "t, in days", yaxt = "n")
+lines(t, surv, pch = 20, cex = 0.5)
+points(1:7, KM.obs$surv[1:7], col = "#999999", pch = 4)
+```
+
+```{r}
+plot(KM.mid30, col = m.cols[1], xlim = c(0, 100), ylim = c(0.5, 1), conf.int = FALSE)
+lines(KM.obs30, col = m.cols[2], conf.int = FALSE)
+lines(t, surv, pch = 20, cex = 0.5, col = "#999999")
+lines(NPMLE30)
+```
+
+
+```{r}
+plot(KM.mid365, col = m.cols[1], xlim = c(0, 700), ylim = c(0, 1), conf.int = FALSE)
+lines(KM.obs365, col = m.cols[2], conf.int = FALSE)
+lines(t, surv, pch = 20, cex = 0.5, col = "#999999")
+lines(NPMLE365)
+```
+
+```{r}
+plot(mid1, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[4],
+     xlim = c(0, 20), ylim = c(0.8, 1))
+lines(ign1, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[5])
+lines(ic1, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[6])
+lines(t, surv, pch = 20, cex = 0.5, col = "#999999")
+```
+
+```{r}
+plot(mid30, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[4],
+     xlim = c(0, 100), ylim = c(0.5, 1))
+lines(ign30, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[5])
+lines(ic30, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[6])
+lines(t, surv, pch = 20, cex = 0.5, col = "#999999")
+```
+
+```{r}
+plot(mid365, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[4],
+     xlim = c(0, 365), ylim = c(0, 1))
+lines(ign365, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[5])
+lines(ic365, B = 0, col.obs = "white", lwd = 0.5, col = m.cols[6])
+lines(t, surv, pch = 20, cex = 0.5, col = "#999999")
+```
+
+
+
